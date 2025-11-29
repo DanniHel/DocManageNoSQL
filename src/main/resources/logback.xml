@@ -1,0 +1,18 @@
+<configuration>
+    <!-- Configuración para reducir los mensajes de depuración del driver de MongoDB -->
+    <logger name="org.mongodb.driver" level="INFO"/>
+
+    <!-- Opcionalmente, configurar un nivel aún más alto para eliminar completamente los mensajes de heartbeat -->
+    <logger name="org.mongodb.driver.cluster" level="WARN"/>
+
+    <!-- Configuración de la salida de consola -->
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="STDOUT"/>
+    </root>
+</configuration>
