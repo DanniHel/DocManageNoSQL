@@ -7,8 +7,8 @@ import java.util.List;
 import java.util.Scanner;
 
 public class DocManageApplication {
-    private static DocumentoRepository documentoRepository = new DocumentoRepository();
-    private static Scanner scanner = new Scanner(System.in);
+    private static final DocumentoRepository documentoRepository = new DocumentoRepository();
+    private static final Scanner scanner = new Scanner(System.in);
 
     public static void main(String[] args) {
         boolean continuar = true;

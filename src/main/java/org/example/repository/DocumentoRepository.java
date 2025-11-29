@@ -95,19 +95,6 @@ public class DocumentoRepository {
         return documentos;
     }
 
-    public Map<String, Long> contarDocumentosPorEstado() {
-        Map<String, Long> conteo = new HashMap<>();
-        collection.aggregate(Arrays.asList(
-                Aggregates.group("$estado", Accumulators.sum("cantidad", 1))
-        )).forEach(document -> {
-            String estado = document.getString("_id");
-            Long cantidad = document.getLong("cantidad");
-            conteo.put(estado, cantidad);
-        });
-        return conteo;
-    }
-
-    // Nuevo: Buscar un documento por ID (útil para Update y Delete)
     public Documento obtenerDocumentoPorId(String id) {
         try {
             ObjectId objectId = new ObjectId(id);
@@ -131,7 +118,6 @@ public class DocumentoRepository {
         }
     }
 
-    // Nuevo: Actualizar un documento (Update)
     public boolean actualizarDocumento(String id, Documento documentoActualizado) {
         try {
             ObjectId objectId = new ObjectId(id);
@@ -152,7 +138,6 @@ public class DocumentoRepository {
         }
     }
 
-    // Nuevo: Eliminar un documento (Delete)
     public boolean eliminarDocumento(String id) {
         try {
             ObjectId objectId = new ObjectId(id);
@@ -163,11 +148,7 @@ public class DocumentoRepository {
         }
     }
 
-    // Metodo de utilidad para conversión de fechas (ya implementado)
     private LocalDateTime convertirDateALocalDateTime(java.util.Date date) {
-        if (date != null) {
-            return date.toInstant().atZone(java.time.ZoneId.systemDefault()).toLocalDateTime();
-        }
-        return null;
+        return Documento.convertirDateALocalDateTime(date);
     }
 }
