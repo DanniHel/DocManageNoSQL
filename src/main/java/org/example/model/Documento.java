@@ -13,6 +13,7 @@ public class Documento {
     private LocalDateTime fechaModificacion;
     private String estado;
     private int version;
+    private ObjectId archivoId;
 
     // Constructor por defecto
     public Documento() {
@@ -34,7 +35,6 @@ public class Documento {
     public ObjectId getId() {
         return id;
     }
-
     public void setId(ObjectId id) {
         this.id = id;
     }
@@ -42,7 +42,6 @@ public class Documento {
     public String getTitulo() {
         return titulo;
     }
-
     public void setTitulo(String titulo) {
         this.titulo = titulo;
     }
@@ -50,7 +49,6 @@ public class Documento {
     public String getAutor() {
         return autor;
     }
-
     public void setAutor(String autor) {
         this.autor = autor;
     }
@@ -58,7 +56,6 @@ public class Documento {
     public String getTipoDocumento() {
         return tipoDocumento;
     }
-
     public void setTipoDocumento(String tipoDocumento) {
         this.tipoDocumento = tipoDocumento;
     }
@@ -66,7 +63,6 @@ public class Documento {
     public LocalDateTime getFechaCreacion() {
         return fechaCreacion;
     }
-
     public void setFechaCreacion(LocalDateTime fechaCreacion) {
         this.fechaCreacion = fechaCreacion;
     }
@@ -74,7 +70,6 @@ public class Documento {
     public LocalDateTime getFechaModificacion() {
         return fechaModificacion;
     }
-
     public void setFechaModificacion(LocalDateTime fechaModificacion) {
         this.fechaModificacion = fechaModificacion;
     }
@@ -82,7 +77,6 @@ public class Documento {
     public String getEstado() {
         return estado;
     }
-
     public void setEstado(String estado) {
         this.estado = estado;
     }
@@ -90,10 +84,12 @@ public class Documento {
     public int getVersion() {
         return version;
     }
-
     public void setVersion(int version) {
         this.version = version;
     }
+
+    public ObjectId getArchivoId() { return archivoId; }
+    public void setArchivoId(ObjectId archivoId) { this.archivoId = archivoId; }
 
     // Agregar estos métodos estáticos en la clase Documento
     public static LocalDateTime convertirDateALocalDateTime(java.util.Date date) {
@@ -117,13 +113,10 @@ public class Documento {
                 ", titulo='" + titulo + '\'' +
                 ", autor='" + autor + '\'' +
                 ", tipoDocumento='" + tipoDocumento + '\'' +
-                ", fechaCreacion=" + fechaCreacion +
+                ", archivoId=" + archivoId +
                 ", estado='" + estado + '\'' +
                 ", version=" + version +
                 '}';
     }
-
-
-
 
 }
