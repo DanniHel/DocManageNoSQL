@@ -38,15 +38,20 @@ public class DocManageApplication {
                 case 6:
                     eliminarDocumento();
                     break;
+                case 8: // Opción nueva
+                    subirArchivoGridFS();
+                    break;
+                case 9: // Opción nueva
+                    aprobarDocumentoTransaccion();
+                    break;
                 case 7:
                     System.out.println("Saliendo del sistema...");
                     continuar = false;
                     break;
                 default:
-                    System.out.println("Opción no válida. Por favor, seleccione una opción del 1 al 7.");
+                    System.out.println("Opción no válida.");
             }
         }
-
         scanner.close();
     }
 
@@ -56,8 +61,10 @@ public class DocManageApplication {
         System.out.println("2. Buscar documentos por autor");
         System.out.println("3. Buscar documentos por tipo");
         System.out.println("4. Mostrar todos los documentos");
-        System.out.println("5. Actualizar documento");
+        System.out.println("5. Actualizar documento (Control de Concurrencia)");
         System.out.println("6. Eliminar documento");
+        System.out.println("8. Subir archivo adjunto (GridFS) [NUEVO]");
+        System.out.println("9. Aprobar documento (Transacción ACID) [NUEVO]");
         System.out.println("7. Salir");
         System.out.print("Seleccione una opción: ");
     }
@@ -66,176 +73,114 @@ public class DocManageApplication {
         while (true) {
             try {
                 String input = scanner.nextLine().trim();
-                int opcion = Integer.parseInt(input);
-                if (opcion >= 1 && opcion <= 7) {
-                    return opcion;
-                } else {
-                    System.out.print("Por favor, ingrese un número entre 1 y 7: ");
-                }
+                return Integer.parseInt(input);
             } catch (NumberFormatException e) {
-                System.out.print("Entrada inválida. Por favor, ingrese un número válido: ");
+                System.out.print("Entrada inválida. Ingrese un número: ");
             }
         }
     }
 
     private static void crearDocumento() {
         System.out.println("\n--- Crear Nuevo Documento ---");
+        System.out.print("Título: ");
+        String titulo = scanner.nextLine().trim();
+        System.out.print("Autor: ");
+        String autor = scanner.nextLine().trim();
+        System.out.print("Tipo (PDF/DOC): ");
+        String tipo = scanner.nextLine().trim();
 
-        String titulo;
-        while (true) {
-            System.out.print("Ingrese el título del documento (obligatorio): ");
-            titulo = scanner.nextLine().trim();
-            if (!titulo.isEmpty()) {
-                break;
-            }
-            System.out.println("El título no puede estar vacío. Intente nuevamente.");
-        }
-
-        String autor;
-        while (true) {
-            System.out.print("Ingrese el autor del documento (obligatorio): ");
-            autor = scanner.nextLine().trim();
-            if (!autor.isEmpty()) {
-                break;
-            }
-            System.out.println("El autor no puede estar vacío. Intente nuevamente.");
-        }
-
-        System.out.print("Ingrese el tipo de documento: ");
-        String tipoDocumento = scanner.nextLine().trim();
-
-        if (tipoDocumento.isEmpty()) {
-            System.out.println("El tipo de documento no puede estar vacío. Se asignará 'Documento' por defecto.");
-            tipoDocumento = "Documento";
-        }
-
-        Documento documento = new Documento(titulo, autor, tipoDocumento);
+        Documento documento = new Documento(titulo, autor, tipo);
         documentoRepository.guardarDocumento(documento);
-
-        System.out.println("Documento creado exitosamente.");
-        System.out.println("Detalles del documento creado:");
-        System.out.println(documento);
+        System.out.println("✅ Documento creado exitosamente.");
     }
 
     private static void buscarDocumentosPorAutor() {
-        System.out.println("\n--- Buscar Documentos por Autor ---");
-        System.out.print("Ingrese el nombre del autor: ");
+        System.out.print("Ingrese autor: ");
         String autor = scanner.nextLine();
-
-        List<Documento> documentos = documentoRepository.obtenerDocumentosPorAutor(autor);
-
-        if (documentos.isEmpty()) {
-            System.out.println("No se encontraron documentos para el autor: " + autor);
-        } else {
-            System.out.println("Documentos encontrados para el autor '" + autor + "':");
-            for (Documento doc : documentos) {
-                System.out.println(doc);
-            }
-        }
+        List<Documento> docs = documentoRepository.obtenerDocumentosPorAutor(autor);
+        docs.forEach(System.out::println);
     }
 
     private static void buscarDocumentosPorTipo() {
-        System.out.println("\n--- Buscar Documentos por Tipo ---");
-        System.out.print("Ingrese el tipo de documento: ");
-        String tipoDocumento = scanner.nextLine();
-
-        List<Documento> documentos = documentoRepository.obtenerDocumentosPorTipo(tipoDocumento);
-
-        if (documentos.isEmpty()) {
-            System.out.println("No se encontraron documentos del tipo: " + tipoDocumento);
-        } else {
-            System.out.println("Documentos encontrados del tipo '" + tipoDocumento + "':");
-            for (Documento doc : documentos) {
-                System.out.println(doc);
-            }
-        }
+        System.out.print("Ingrese tipo: ");
+        String tipo = scanner.nextLine();
+        List<Documento> docs = documentoRepository.obtenerDocumentosPorTipo(tipo);
+        docs.forEach(System.out::println);
     }
 
     private static void mostrarTodosLosDocumentos() {
-        List<Documento> documentos = documentoRepository.obtenerTodosLosDocumentos();
-
-        if (documentos.isEmpty()) {
-            System.out.println("No hay documentos en el sistema.");
-        } else {
-            System.out.println("\n--- Todos los Documentos ---");
-            System.out.println("Total de documentos: " + documentos.size());
-            for (Documento doc : documentos) {
-                System.out.println(doc);
-            }
-        }
+        List<Documento> docs = documentoRepository.obtenerTodosLosDocumentos();
+        if (docs.isEmpty()) System.out.println("No hay documentos.");
+        else docs.forEach(System.out::println);
     }
 
+    // MÉTODO CORREGIDO PARA SOPORTAR CONCURRENCIA
     private static void actualizarDocumento() {
         System.out.println("\n--- Actualizar Documento ---");
-        System.out.print("Ingrese el ID del documento a actualizar: ");
+        System.out.print("Ingrese el ID del documento: ");
         String id = scanner.nextLine().trim();
 
-        Documento documentoExistente = documentoRepository.obtenerDocumentoPorId(id);
-        if (documentoExistente == null) {
-            System.out.println("No se encontró un documento con el ID proporcionado.");
+        // Buscamos el documento para asegurarnos que existe
+        Documento docExistente = documentoRepository.obtenerDocumentoPorId(id);
+        if (docExistente == null) {
+            System.out.println("❌ No encontrado.");
             return;
         }
 
-        System.out.println("Documento actual:");
-        System.out.println(documentoExistente);
+        // PEDIMOS LA VERSIÓN PARA PROBAR EL OPTIMISTIC LOCKING
+        System.out.println("Versión actual en BD: " + docExistente.getVersion());
+        System.out.print("Ingrese la versión que desea actualizar (si pone una vieja fallará): ");
+        int versionInput = Integer.parseInt(scanner.nextLine().trim());
 
-        System.out.print("Nuevo título (deje vacío para mantener actual): ");
-        String nuevoTitulo = scanner.nextLine().trim();
-        if (!nuevoTitulo.isEmpty()) {
-            documentoExistente.setTitulo(nuevoTitulo);
-        }
+        System.out.print("Nuevo título (Enter para mantener): ");
+        String nTitulo = scanner.nextLine().trim();
+        if (!nTitulo.isEmpty()) docExistente.setTitulo(nTitulo);
 
-        System.out.print("Nuevo autor (deje vacío para mantener actual): ");
-        String nuevoAutor = scanner.nextLine().trim();
-        if (!nuevoAutor.isEmpty()) {
-            documentoExistente.setAutor(nuevoAutor);
-        }
+        System.out.print("Nuevo autor (Enter para mantener): ");
+        String nAutor = scanner.nextLine().trim();
+        if (!nAutor.isEmpty()) docExistente.setAutor(nAutor);
 
-        System.out.print("Nuevo tipo de documento (deje vacío para mantener actual): ");
-        String nuevoTipo = scanner.nextLine().trim();
-        if (!nuevoTipo.isEmpty()) {
-            documentoExistente.setTipoDocumento(nuevoTipo);
-        }
+        System.out.print("Nuevo tipo (Enter para mantener): ");
+        String nTipo = scanner.nextLine().trim();
+        if (!nTipo.isEmpty()) docExistente.setTipoDocumento(nTipo);
 
-        System.out.print("Nuevo estado (deje vacío para mantener actual, ej: APROBADO, RECHAZADO): ");
-        String nuevoEstado = scanner.nextLine().trim();
-        if (!nuevoEstado.isEmpty()) {
-            documentoExistente.setEstado(nuevoEstado);
-        }
+        // AQUÍ LLAMAMOS AL MÉTODO DE 3 ARGUMENTOS
+        boolean exito = documentoRepository.actualizarDocumento(id, docExistente, versionInput);
 
-        boolean actualizado = documentoRepository.actualizarDocumento(id, documentoExistente);
-        if (actualizado) {
-            System.out.println("Documento actualizado exitosamente.");
+        if (exito) {
+            System.out.println("✅ Actualizado correctamente (Versión incrementada).");
         } else {
-            System.out.println("Error al actualizar el documento.");
+            System.out.println("❌ ERROR DE CONCURRENCIA: La versión no coincide o el documento fue modificado por otro usuario.");
         }
     }
 
     private static void eliminarDocumento() {
-        System.out.println("\n--- Eliminar Documento ---");
-        System.out.print("Ingrese el ID del documento a eliminar: ");
+        System.out.print("Ingrese ID a eliminar: ");
         String id = scanner.nextLine().trim();
-
-        Documento documentoAEliminar = documentoRepository.obtenerDocumentoPorId(id);
-        if (documentoAEliminar == null) {
-            System.out.println("No se encontró un documento con el ID proporcionado.");
-            return;
-        }
-
-        System.out.println("Documento a eliminar:");
-        System.out.println(documentoAEliminar);
-        System.out.print("¿Está seguro de que desea eliminar este documento? (s/n): ");
-        String confirmacion = scanner.nextLine().trim().toLowerCase();
-
-        if ("s".equals(confirmacion) || "si".equals(confirmacion)) {
-            boolean eliminado = documentoRepository.eliminarDocumento(id);
-            if (eliminado) {
-                System.out.println("Documento eliminado exitosamente.");
-            } else {
-                System.out.println("Error al eliminar el documento.");
-            }
+        if (documentoRepository.eliminarDocumento(id)) {
+            System.out.println("✅ Eliminado.");
         } else {
-            System.out.println("Operación de eliminación cancelada.");
+            System.out.println("❌ No encontrado.");
         }
+    }
+
+    // --- NUEVOS MÉTODOS PARA REQUISITOS FALTANTES ---
+
+    private static void subirArchivoGridFS() {
+        System.out.println("\n--- Subir Archivo (GridFS) ---");
+        System.out.print("Ruta del archivo (ej: C:\\foto.jpg): ");
+        String ruta = scanner.nextLine().trim();
+        System.out.print("Nombre para guardar: ");
+        String nombre = scanner.nextLine().trim();
+
+        var id = documentoRepository.subirArchivo(ruta, nombre);
+        if (id != null) System.out.println("✅ Archivo subido con ID: " + id);
+    }
+
+    private static void aprobarDocumentoTransaccion() {
+        System.out.println("\n--- Aprobar Documento (Transacción ACID) ---");
+        System.out.print("ID del documento a aprobar: ");
+        String id = scanner.nextLine().trim();
+        documentoRepository.aprobarDocumentoConTransaccion(id);
     }
 }

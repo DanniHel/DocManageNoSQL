@@ -1,7 +1,11 @@
 package org.example.repository;
 
+import com.mongodb.client.ClientSession;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.TransactionBody;
+import com.mongodb.client.gridfs.GridFSBucket;
+import com.mongodb.client.gridfs.GridFSBuckets;
 import com.mongodb.client.model.*;
 import com.mongodb.client.result.DeleteResult;
 import com.mongodb.client.result.UpdateResult;
@@ -10,15 +14,21 @@ import org.bson.types.ObjectId;
 import org.example.config.MongoConfig;
 import org.example.model.Documento;
 
+import java.io.FileInputStream;
+import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.util.*;
 
 public class DocumentoRepository {
     private final MongoCollection<Document> collection;
+    private final GridFSBucket gridFSBucket; // <--- NUEVO: Para archivos grandes
 
     public DocumentoRepository() {
         MongoDatabase database = MongoConfig.getMongoClient().getDatabase(MongoConfig.getDatabaseName());
         this.collection = database.getCollection("documentos");
+
+        // Inicializar GridFS
+        this.gridFSBucket = GridFSBuckets.create(database, "archivos"); // <--- NUEVO
 
         // Crear índices compuestos
         collection.createIndex(Indexes.compoundIndex(
@@ -41,46 +51,23 @@ public class DocumentoRepository {
         documento.setId(doc.getObjectId("_id")); // Asignar el ID generado
     }
 
+    // --- MÉTODOS DE BÚSQUEDA (Sin cambios) ---
     public List<Documento> obtenerDocumentosPorAutor(String autor) {
-        List<Documento> documentos = new ArrayList<>();
-        collection.find(Filters.eq("autor", autor)).forEach(document -> {
-            Documento doc = new Documento();
-            doc.setId(document.getObjectId("_id"));
-            doc.setTitulo(document.getString("titulo"));
-            doc.setAutor(document.getString("autor"));
-            doc.setTipoDocumento(document.getString("tipoDocumento"));
-
-            // Manejo seguro de la conversión de fechas
-            doc.setFechaCreacion(convertirDateALocalDateTime(document.get("fechaCreacion", java.util.Date.class)));
-            doc.setFechaModificacion(convertirDateALocalDateTime(document.get("fechaModificacion", java.util.Date.class)));
-            doc.setEstado(document.getString("estado"));
-            doc.setVersion(document.getInteger("version", 0));
-
-            documentos.add(doc);
-        });
-        return documentos;
+        return mapearDocumentos(Filters.eq("autor", autor));
     }
 
     public List<Documento> obtenerDocumentosPorTipo(String tipoDocumento) {
-        List<Documento> documentos = new ArrayList<>();
-        collection.find(Filters.eq("tipoDocumento", tipoDocumento)).forEach(document -> {
-            Documento doc = new Documento();
-            doc.setId(document.getObjectId("_id"));
-            doc.setTitulo(document.getString("titulo"));
-            doc.setAutor(document.getString("autor"));
-            doc.setTipoDocumento(document.getString("tipoDocumento"));
-            doc.setFechaCreacion(convertirDateALocalDateTime(document.get("fechaCreacion", java.util.Date.class)));
-            doc.setFechaModificacion(convertirDateALocalDateTime(document.get("fechaModificacion", java.util.Date.class)));
-            doc.setEstado(document.getString("estado"));
-            doc.setVersion(document.getInteger("version", 0));
-            documentos.add(doc);
-        });
-        return documentos;
+        return mapearDocumentos(Filters.eq("tipoDocumento", tipoDocumento));
     }
 
     public List<Documento> obtenerTodosLosDocumentos() {
+        return mapearDocumentos(new Document()); // Busca todo
+    }
+
+    // Método auxiliar para evitar repetir código en las búsquedas
+    private List<Documento> mapearDocumentos(org.bson.conversions.Bson filtro) {
         List<Documento> documentos = new ArrayList<>();
-        collection.find().forEach(document -> {
+        collection.find(filtro).forEach(document -> {
             Documento doc = new Documento();
             doc.setId(document.getObjectId("_id"));
             doc.setTitulo(document.getString("titulo"));
@@ -89,19 +76,18 @@ public class DocumentoRepository {
             doc.setFechaCreacion(convertirDateALocalDateTime(document.get("fechaCreacion", java.util.Date.class)));
             doc.setFechaModificacion(convertirDateALocalDateTime(document.get("fechaModificacion", java.util.Date.class)));
             doc.setEstado(document.getString("estado"));
-            doc.setVersion(document.getInteger("version", 0));
+            doc.setVersion(document.getInteger("version", 1));
             documentos.add(doc);
         });
         return documentos;
     }
+    // -----------------------------------------
 
     public Documento obtenerDocumentoPorId(String id) {
         try {
             ObjectId objectId = new ObjectId(id);
             Document document = collection.find(Filters.eq("_id", objectId)).first();
-            if (document == null) {
-                return null;
-            }
+            if (document == null) return null;
 
             Documento doc = new Documento();
             doc.setId(document.getObjectId("_id"));
@@ -111,25 +97,31 @@ public class DocumentoRepository {
             doc.setFechaCreacion(Documento.convertirDateALocalDateTime(document.get("fechaCreacion", java.util.Date.class)));
             doc.setFechaModificacion(Documento.convertirDateALocalDateTime(document.get("fechaModificacion", java.util.Date.class)));
             doc.setEstado(document.getString("estado"));
-            doc.setVersion(document.getInteger("version", 0));
+            doc.setVersion(document.getInteger("version", 1));
             return doc;
         } catch (IllegalArgumentException e) {
-            return null; // ID inválido
+            return null;
         }
     }
 
-    public boolean actualizarDocumento(String id, Documento documentoActualizado) {
+    // REQUISITO 5: ACTUALIZAR CON CONTROL DE CONCURRENCIA (Optimistic Locking)
+    public boolean actualizarDocumento(String id, Documento documentoActualizado, int versionActual) {
         try {
             ObjectId objectId = new ObjectId(id);
+
+            // Filtro: Coincide ID *Y* la Versión que el usuario leyó
             UpdateResult result = collection.updateOne(
-                    Filters.eq("_id", objectId),
+                    Filters.and(
+                            Filters.eq("_id", objectId),
+                            Filters.eq("version", versionActual) // Verificación de concurrencia
+                    ),
                     Updates.combine(
                             Updates.set("titulo", documentoActualizado.getTitulo()),
                             Updates.set("autor", documentoActualizado.getAutor()),
                             Updates.set("tipoDocumento", documentoActualizado.getTipoDocumento()),
                             Updates.set("fechaModificacion", Documento.convertirLocalDateTimeADate(LocalDateTime.now())),
                             Updates.set("estado", documentoActualizado.getEstado()),
-                            Updates.set("version", documentoActualizado.getVersion() + 1) // Incrementar versión
+                            Updates.inc("version", 1) // Incrementa la versión en BD automáticamente
                     )
             );
             return result.getModifiedCount() > 0;
@@ -145,6 +137,57 @@ public class DocumentoRepository {
             return result.getDeletedCount() > 0;
         } catch (IllegalArgumentException e) {
             return false;
+        }
+    }
+
+    // REQUISITO 4: GRIDFS (Subir Archivos)
+    public ObjectId subirArchivo(String rutaArchivo, String nombreArchivo) {
+        try (InputStream streamToUploadFrom = new FileInputStream(rutaArchivo)) {
+            System.out.println("Subiendo archivo a GridFS...");
+            return gridFSBucket.uploadFromStream(nombreArchivo, streamToUploadFrom);
+        } catch (Exception e) {
+            System.err.println("Error al subir archivo: " + e.getMessage());
+            return null;
+        }
+    }
+
+    // REQUISITO 1: TRANSACCIONES ACID (Workflow de Aprobación)
+    public void aprobarDocumentoConTransaccion(String idDoc) {
+        // Obtenemos la sesión del cliente
+        try (ClientSession session = MongoConfig.getMongoClient().startSession()) {
+
+            // Ejecutamos la transacción
+            session.withTransaction(new TransactionBody<Void>() {
+                @Override
+                public Void execute() {
+                    ObjectId docId = new ObjectId(idDoc);
+
+                    // Paso 1: Actualizar estado del documento
+                    UpdateResult res = collection.updateOne(session,
+                            Filters.eq("_id", docId),
+                            Updates.set("estado", "APROBADO")
+                    );
+
+                    if (res.getModifiedCount() == 0) {
+                        System.out.println("No se encontró el documento o ya estaba aprobado.");
+                        return null;
+                    }
+
+                    // Paso 2: Registrar en auditoría (otra colección)
+                    MongoDatabase db = MongoConfig.getMongoClient().getDatabase(MongoConfig.getDatabaseName());
+                    db.getCollection("auditoria_aprobaciones").insertOne(session,
+                            new Document("docId", docId)
+                                    .append("fechaAprobacion", new Date())
+                                    .append("accion", "APROBADO_GERENCIA")
+                                    .append("usuario", "admin")
+                    );
+
+                    System.out.println("¡Transacción completada! Documento aprobado y auditado.");
+                    return null;
+                }
+            });
+        } catch (Exception e) {
+            System.err.println("La transacción falló (Rollback automático): " + e.getMessage());
         }
     }
 
