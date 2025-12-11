@@ -1,0 +1,581 @@
+===== DocManageNoSQL\src\main\java\org\example\DocManageApplication.java =====
+package org.example;
+
+import org.example.model.Documento;
+import org.example.repository.DocumentoRepository;
+
+import java.util.List;
+import java.util.Scanner;
+
+public class DocManageApplication {
+    private static final DocumentoRepository documentoRepository = new DocumentoRepository();
+    private static final Scanner scanner = new Scanner(System.in);
+
+    public static void main(String[] args) {
+        boolean continuar = true;
+
+        System.out.println("=== Sistema de Gestión Documental DocManageNoSQL ===");
+
+        while (continuar) {
+            mostrarMenu();
+            int opcion = obtenerOpcion();
+
+            switch (opcion) {
+                case 1:
+                    crearDocumento();
+                    break;
+                case 2:
+                    buscarDocumentosPorAutor();
+                    break;
+                case 3:
+                    buscarDocumentosPorTipo();
+                    break;
+                case 4:
+                    mostrarTodosLosDocumentos();
+                    break;
+                case 5:
+                    actualizarDocumento();
+                    break;
+                case 6:
+                    eliminarDocumento();
+                    break;
+                case 8: // Opción nueva
+                    subirArchivoGridFS();
+                    break;
+                case 9: // Opción nueva
+                    aprobarDocumentoTransaccion();
+                    break;
+                case 7:
+                    System.out.println("Saliendo del sistema...");
+                    continuar = false;
+                    break;
+                default:
+                    System.out.println("Opción no válida.");
+            }
+        }
+        scanner.close();
+    }
+
+    private static void mostrarMenu() {
+        System.out.println("\n--- Menú Principal ---");
+        System.out.println("1. Crear nuevo documento");
+        System.out.println("2. Buscar documentos por autor");
+        System.out.println("3. Buscar documentos por tipo");
+        System.out.println("4. Mostrar todos los documentos");
+        System.out.println("5. Actualizar documento (Control de Concurrencia)");
+        System.out.println("6. Eliminar documento");
+        System.out.println("8. Subir archivo adjunto (GridFS) [NUEVO]");
+        System.out.println("9. Aprobar documento (Transacción ACID) [NUEVO]");
+        System.out.println("7. Salir");
+        System.out.print("Seleccione una opción: ");
+    }
+
+    private static int obtenerOpcion() {
+        while (true) {
+            try {
+                String input = scanner.nextLine().trim();
+                return Integer.parseInt(input);
+            } catch (NumberFormatException e) {
+                System.out.print("Entrada inválida. Ingrese un número: ");
+            }
+        }
+    }
+
+    private static void crearDocumento() {
+        System.out.println("\n--- Crear Nuevo Documento ---");
+        System.out.print("Título: ");
+        String titulo = scanner.nextLine().trim();
+        System.out.print("Autor: ");
+        String autor = scanner.nextLine().trim();
+        System.out.print("Tipo (PDF/DOC): ");
+        String tipo = scanner.nextLine().trim();
+
+        Documento documento = new Documento(titulo, autor, tipo);
+        documentoRepository.guardarDocumento(documento);
+        System.out.println("✅ Documento creado exitosamente.");
+    }
+
+    private static void buscarDocumentosPorAutor() {
+        System.out.print("Ingrese autor: ");
+        String autor = scanner.nextLine();
+        List<Documento> docs = documentoRepository.obtenerDocumentosPorAutor(autor);
+        docs.forEach(System.out::println);
+    }
+
+    private static void buscarDocumentosPorTipo() {
+        System.out.print("Ingrese tipo: ");
+        String tipo = scanner.nextLine();
+        List<Documento> docs = documentoRepository.obtenerDocumentosPorTipo(tipo);
+        docs.forEach(System.out::println);
+    }
+
+    private static void mostrarTodosLosDocumentos() {
+        List<Documento> docs = documentoRepository.obtenerTodosLosDocumentos();
+        if (docs.isEmpty()) System.out.println("No hay documentos.");
+        else docs.forEach(System.out::println);
+    }
+
+    // MÉTODO CORREGIDO PARA SOPORTAR CONCURRENCIA
+    private static void actualizarDocumento() {
+        System.out.println("\n--- Actualizar Documento ---");
+        System.out.print("Ingrese el ID del documento: ");
+        String id = scanner.nextLine().trim();
+
+        // Buscamos el documento para asegurarnos que existe
+        Documento docExistente = documentoRepository.obtenerDocumentoPorId(id);
+        if (docExistente == null) {
+            System.out.println("❌ No encontrado.");
+            return;
+        }
+
+        // PEDIMOS LA VERSIÓN PARA PROBAR EL OPTIMISTIC LOCKING
+        System.out.println("Versión actual en BD: " + docExistente.getVersion());
+        System.out.print("Ingrese la versión que desea actualizar (si pone una vieja fallará): ");
+        int versionInput = Integer.parseInt(scanner.nextLine().trim());
+
+        System.out.print("Nuevo título (Enter para mantener): ");
+        String nTitulo = scanner.nextLine().trim();
+        if (!nTitulo.isEmpty()) docExistente.setTitulo(nTitulo);
+
+        System.out.print("Nuevo autor (Enter para mantener): ");
+        String nAutor = scanner.nextLine().trim();
+        if (!nAutor.isEmpty()) docExistente.setAutor(nAutor);
+
+        System.out.print("Nuevo tipo (Enter para mantener): ");
+        String nTipo = scanner.nextLine().trim();
+        if (!nTipo.isEmpty()) docExistente.setTipoDocumento(nTipo);
+
+        // AQUÍ LLAMAMOS AL MÉTODO DE 3 ARGUMENTOS
+        boolean exito = documentoRepository.actualizarDocumento(id, docExistente, versionInput);
+
+        if (exito) {
+            System.out.println("✅ Actualizado correctamente (Versión incrementada).");
+        } else {
+            System.out.println("❌ ERROR DE CONCURRENCIA: La versión no coincide o el documento fue modificado por otro usuario.");
+        }
+    }
+
+    private static void eliminarDocumento() {
+        System.out.print("Ingrese ID a eliminar: ");
+        String id = scanner.nextLine().trim();
+        if (documentoRepository.eliminarDocumento(id)) {
+            System.out.println("✅ Eliminado.");
+        } else {
+            System.out.println("❌ No encontrado.");
+        }
+    }
+
+    // --- NUEVOS MÉTODOS PARA REQUISITOS FALTANTES ---
+
+    private static void subirArchivoGridFS() {
+        System.out.println("\n--- Subir Archivo (GridFS) ---");
+        System.out.print("Ruta del archivo (ej: C:\\foto.jpg): ");
+        String ruta = scanner.nextLine().trim();
+        System.out.print("Nombre para guardar: ");
+        String nombre = scanner.nextLine().trim();
+
+        var id = documentoRepository.subirArchivo(ruta, nombre);
+        if (id != null) System.out.println("✅ Archivo subido con ID: " + id);
+    }
+
+    private static void aprobarDocumentoTransaccion() {
+        System.out.println("\n--- Aprobar Documento (Transacción ACID) ---");
+        System.out.print("ID del documento a aprobar: ");
+        String id = scanner.nextLine().trim();
+        documentoRepository.aprobarDocumentoConTransaccion(id);
+    }
+}
+
+===== DocManageNoSQL\src\main\java\org\example\config\MongoConfig.java =====
+package org.example.config;
+
+import com.mongodb.MongoClientSettings;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
+import org.bson.codecs.configuration.CodecRegistry;
+import org.bson.codecs.pojo.PojoCodecProvider;
+import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
+import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Properties;
+
+public class MongoConfig {
+    private static MongoClient mongoClient;
+    private static String databaseName;
+
+    public static MongoClient getMongoClient() {
+        if (mongoClient == null) {
+            Properties properties = loadProperties();
+            String connectionString = properties.getProperty("mongodb.connection.string");
+            databaseName = properties.getProperty("mongodb.database.name");
+
+            CodecRegistry pojoCodecRegistry = fromRegistries(
+                    MongoClientSettings.getDefaultCodecRegistry(),
+                    fromProviders(PojoCodecProvider.builder().automatic(true).build())
+            );
+
+            mongoClient = MongoClients.create(connectionString);
+        }
+        return mongoClient;
+    }
+
+    public static String getDatabaseName() {
+        if (databaseName == null) {
+            loadProperties();
+        }
+        return databaseName;
+    }
+
+    private static Properties loadProperties() {
+        Properties properties = new Properties();
+        try (InputStream input = MongoConfig.class.getClassLoader()
+                .getResourceAsStream("mongodb.properties")) {
+            if (input == null) {
+                throw new RuntimeException("No se pudo encontrar el archivo mongodb.properties");
+            }
+            properties.load(input);
+        } catch (IOException e) {
+            throw new RuntimeException("Error al cargar las propiedades de MongoDB", e);
+        }
+        return properties;
+    }
+
+    public static void closeMongoClient() {
+        if (mongoClient != null) {
+            mongoClient.close();
+        }
+    }
+}
+
+===== DocManageNoSQL\src\main\java\org\example\model\Documento.java =====
+package org.example.model;
+
+import org.bson.types.ObjectId;
+
+import java.time.LocalDateTime;
+
+public class Documento {
+    private ObjectId id;
+    private String titulo;
+    private String autor;
+    private String tipoDocumento;
+    private LocalDateTime fechaCreacion;
+    private LocalDateTime fechaModificacion;
+    private String estado;
+    private int version;
+
+    // Constructor por defecto
+    public Documento() {
+        this.fechaCreacion = LocalDateTime.now();
+        this.fechaModificacion = LocalDateTime.now();
+        this.version = 1;
+        this.estado = "BORRADOR";
+    }
+
+    // Constructor con parámetros principales
+    public Documento(String titulo, String autor, String tipoDocumento) {
+        this();
+        this.titulo = titulo;
+        this.autor = autor;
+        this.tipoDocumento = tipoDocumento;
+    }
+
+    // Getters y Setters
+    public ObjectId getId() {
+        return id;
+    }
+
+    public void setId(ObjectId id) {
+        this.id = id;
+    }
+
+    public String getTitulo() {
+        return titulo;
+    }
+
+    public void setTitulo(String titulo) {
+        this.titulo = titulo;
+    }
+
+    public String getAutor() {
+        return autor;
+    }
+
+    public void setAutor(String autor) {
+        this.autor = autor;
+    }
+
+    public String getTipoDocumento() {
+        return tipoDocumento;
+    }
+
+    public void setTipoDocumento(String tipoDocumento) {
+        this.tipoDocumento = tipoDocumento;
+    }
+
+    public LocalDateTime getFechaCreacion() {
+        return fechaCreacion;
+    }
+
+    public void setFechaCreacion(LocalDateTime fechaCreacion) {
+        this.fechaCreacion = fechaCreacion;
+    }
+
+    public LocalDateTime getFechaModificacion() {
+        return fechaModificacion;
+    }
+
+    public void setFechaModificacion(LocalDateTime fechaModificacion) {
+        this.fechaModificacion = fechaModificacion;
+    }
+
+    public String getEstado() {
+        return estado;
+    }
+
+    public void setEstado(String estado) {
+        this.estado = estado;
+    }
+
+    public int getVersion() {
+        return version;
+    }
+
+    public void setVersion(int version) {
+        this.version = version;
+    }
+
+    // Agregar estos métodos estáticos en la clase Documento
+    public static LocalDateTime convertirDateALocalDateTime(java.util.Date date) {
+        if (date != null) {
+            return date.toInstant().atZone(java.time.ZoneId.systemDefault()).toLocalDateTime();
+        }
+        return null;
+    }
+
+    public static java.util.Date convertirLocalDateTimeADate(LocalDateTime localDateTime) {
+        if (localDateTime != null) {
+            return java.util.Date.from(localDateTime.atZone(java.time.ZoneId.systemDefault()).toInstant());
+        }
+        return null;
+    }
+
+    @Override
+    public String toString() {
+        return "Documento{" +
+                "id=" + id +
+                ", titulo='" + titulo + '\'' +
+                ", autor='" + autor + '\'' +
+                ", tipoDocumento='" + tipoDocumento + '\'' +
+                ", fechaCreacion=" + fechaCreacion +
+                ", estado='" + estado + '\'' +
+                ", version=" + version +
+                '}';
+    }
+
+
+
+
+}
+
+===== DocManageNoSQL\src\main\java\org\example\repository\DocumentoRepository.java =====
+package org.example.repository;
+
+import com.mongodb.client.ClientSession;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.TransactionBody;
+import com.mongodb.client.gridfs.GridFSBucket;
+import com.mongodb.client.gridfs.GridFSBuckets;
+import com.mongodb.client.model.*;
+import com.mongodb.client.result.DeleteResult;
+import com.mongodb.client.result.UpdateResult;
+import org.bson.Document;
+import org.bson.types.ObjectId;
+import org.example.config.MongoConfig;
+import org.example.model.Documento;
+
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.time.LocalDateTime;
+import java.util.*;
+
+public class DocumentoRepository {
+    private final MongoCollection<Document> collection;
+    private final GridFSBucket gridFSBucket; // <--- NUEVO: Para archivos grandes
+
+    public DocumentoRepository() {
+        MongoDatabase database = MongoConfig.getMongoClient().getDatabase(MongoConfig.getDatabaseName());
+        this.collection = database.getCollection("documentos");
+
+        // Inicializar GridFS
+        this.gridFSBucket = GridFSBuckets.create(database, "archivos"); // <--- NUEVO
+
+        // Crear índices compuestos
+        collection.createIndex(Indexes.compoundIndex(
+                Indexes.ascending("tipoDocumento"),
+                Indexes.descending("fechaCreacion"),
+                Indexes.ascending("autor")
+        ));
+    }
+
+    public void guardarDocumento(Documento documento) {
+        Document doc = new Document("titulo", documento.getTitulo())
+                .append("autor", documento.getAutor())
+                .append("tipoDocumento", documento.getTipoDocumento())
+                .append("fechaCreacion", documento.convertirLocalDateTimeADate(documento.getFechaCreacion()))
+                .append("fechaModificacion", documento.convertirLocalDateTimeADate(documento.getFechaModificacion()))
+                .append("estado", documento.getEstado())
+                .append("version", documento.getVersion());
+
+        collection.insertOne(doc);
+        documento.setId(doc.getObjectId("_id")); // Asignar el ID generado
+    }
+
+    // --- MÉTODOS DE BÚSQUEDA (Sin cambios) ---
+    public List<Documento> obtenerDocumentosPorAutor(String autor) {
+        return mapearDocumentos(Filters.eq("autor", autor));
+    }
+
+    public List<Documento> obtenerDocumentosPorTipo(String tipoDocumento) {
+        return mapearDocumentos(Filters.eq("tipoDocumento", tipoDocumento));
+    }
+
+    public List<Documento> obtenerTodosLosDocumentos() {
+        return mapearDocumentos(new Document()); // Busca todo
+    }
+
+    // Método auxiliar para evitar repetir código en las búsquedas
+    private List<Documento> mapearDocumentos(org.bson.conversions.Bson filtro) {
+        List<Documento> documentos = new ArrayList<>();
+        collection.find(filtro).forEach(document -> {
+            Documento doc = new Documento();
+            doc.setId(document.getObjectId("_id"));
+            doc.setTitulo(document.getString("titulo"));
+            doc.setAutor(document.getString("autor"));
+            doc.setTipoDocumento(document.getString("tipoDocumento"));
+            doc.setFechaCreacion(convertirDateALocalDateTime(document.get("fechaCreacion", java.util.Date.class)));
+            doc.setFechaModificacion(convertirDateALocalDateTime(document.get("fechaModificacion", java.util.Date.class)));
+            doc.setEstado(document.getString("estado"));
+            doc.setVersion(document.getInteger("version", 1));
+            documentos.add(doc);
+        });
+        return documentos;
+    }
+    // -----------------------------------------
+
+    public Documento obtenerDocumentoPorId(String id) {
+        try {
+            ObjectId objectId = new ObjectId(id);
+            Document document = collection.find(Filters.eq("_id", objectId)).first();
+            if (document == null) return null;
+
+            Documento doc = new Documento();
+            doc.setId(document.getObjectId("_id"));
+            doc.setTitulo(document.getString("titulo"));
+            doc.setAutor(document.getString("autor"));
+            doc.setTipoDocumento(document.getString("tipoDocumento"));
+            doc.setFechaCreacion(Documento.convertirDateALocalDateTime(document.get("fechaCreacion", java.util.Date.class)));
+            doc.setFechaModificacion(Documento.convertirDateALocalDateTime(document.get("fechaModificacion", java.util.Date.class)));
+            doc.setEstado(document.getString("estado"));
+            doc.setVersion(document.getInteger("version", 1));
+            return doc;
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    // REQUISITO 5: ACTUALIZAR CON CONTROL DE CONCURRENCIA (Optimistic Locking)
+    public boolean actualizarDocumento(String id, Documento documentoActualizado, int versionActual) {
+        try {
+            ObjectId objectId = new ObjectId(id);
+
+            // Filtro: Coincide ID *Y* la Versión que el usuario leyó
+            UpdateResult result = collection.updateOne(
+                    Filters.and(
+                            Filters.eq("_id", objectId),
+                            Filters.eq("version", versionActual) // Verificación de concurrencia
+                    ),
+                    Updates.combine(
+                            Updates.set("titulo", documentoActualizado.getTitulo()),
+                            Updates.set("autor", documentoActualizado.getAutor()),
+                            Updates.set("tipoDocumento", documentoActualizado.getTipoDocumento()),
+                            Updates.set("fechaModificacion", Documento.convertirLocalDateTimeADate(LocalDateTime.now())),
+                            Updates.set("estado", documentoActualizado.getEstado()),
+                            Updates.inc("version", 1) // Incrementa la versión en BD automáticamente
+                    )
+            );
+            return result.getModifiedCount() > 0;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    public boolean eliminarDocumento(String id) {
+        try {
+            ObjectId objectId = new ObjectId(id);
+            DeleteResult result = collection.deleteOne(Filters.eq("_id", objectId));
+            return result.getDeletedCount() > 0;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    // REQUISITO 4: GRIDFS (Subir Archivos)
+    public ObjectId subirArchivo(String rutaArchivo, String nombreArchivo) {
+        try (InputStream streamToUploadFrom = new FileInputStream(rutaArchivo)) {
+            System.out.println("Subiendo archivo a GridFS...");
+            return gridFSBucket.uploadFromStream(nombreArchivo, streamToUploadFrom);
+        } catch (Exception e) {
+            System.err.println("Error al subir archivo: " + e.getMessage());
+            return null;
+        }
+    }
+
+    // REQUISITO 1: TRANSACCIONES ACID (Workflow de Aprobación)
+    public void aprobarDocumentoConTransaccion(String idDoc) {
+        // Obtenemos la sesión del cliente
+        try (ClientSession session = MongoConfig.getMongoClient().startSession()) {
+
+            // Ejecutamos la transacción
+            session.withTransaction(new TransactionBody<Void>() {
+                @Override
+                public Void execute() {
+                    ObjectId docId = new ObjectId(idDoc);
+
+                    // Paso 1: Actualizar estado del documento
+                    UpdateResult res = collection.updateOne(session,
+                            Filters.eq("_id", docId),
+                            Updates.set("estado", "APROBADO")
+                    );
+
+                    if (res.getModifiedCount() == 0) {
+                        System.out.println("No se encontró el documento o ya estaba aprobado.");
+                        return null;
+                    }
+
+                    // Paso 2: Registrar en auditoría (otra colección)
+                    MongoDatabase db = MongoConfig.getMongoClient().getDatabase(MongoConfig.getDatabaseName());
+                    db.getCollection("auditoria_aprobaciones").insertOne(session,
+                            new Document("docId", docId)
+                                    .append("fechaAprobacion", new Date())
+                                    .append("accion", "APROBADO_GERENCIA")
+                                    .append("usuario", "admin")
+                    );
+
+                    System.out.println("¡Transacción completada! Documento aprobado y auditado.");
+                    return null;
+                }
+            });
+        } catch (Exception e) {
+            System.err.println("La transacción falló (Rollback automático): " + e.getMessage());
+        }
+    }
+
+    private LocalDateTime convertirDateALocalDateTime(java.util.Date date) {
+        return Documento.convertirDateALocalDateTime(date);
+    }
+}
+
