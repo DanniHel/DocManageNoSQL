@@ -1,13 +1,18 @@
 package org.example;
 
+import org.bson.Document;
 import org.example.model.Documento;
 import org.example.repository.DocumentoRepository;
 
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.util.Date;
 import java.util.List;
 import java.util.Scanner;
 
 public class DocManageApplication {
-    private static final DocumentoRepository documentoRepository = new DocumentoRepository();
+    public static final DocumentoRepository documentoRepository = new DocumentoRepository();
     private static final Scanner scanner = new Scanner(System.in);
 
     public static void main(String[] args) {
@@ -38,18 +43,24 @@ public class DocManageApplication {
                 case 6:
                     eliminarDocumento();
                     break;
-                case 8: // Opción nueva
-                    subirArchivoGridFS();
-                    break;
-                case 9: // Opción nueva
-                    aprobarDocumentoTransaccion();
-                    break;
                 case 7:
+                    subirArchivoGridFS();  // Antes era 8
+                    break;
+                case 8:
+                    aprobarDocumentoTransaccion();  // Antes era 9
+                    break;
+                case 9:
+                    mostrarUltimasOperacionesOplog();  // Antes era 10
+                    break;
+                case 10:
+                    recuperarDesdeOplog();  // Antes era 11
+                    break;
+                case 11:
                     System.out.println("Saliendo del sistema...");
                     continuar = false;
                     break;
                 default:
-                    System.out.println("Opción no válida.");
+                    System.out.println("Opción no válida. Por favor, intente de nuevo.");
             }
         }
         scanner.close();
@@ -63,9 +74,11 @@ public class DocManageApplication {
         System.out.println("4. Mostrar todos los documentos");
         System.out.println("5. Actualizar documento (Control de Concurrencia)");
         System.out.println("6. Eliminar documento");
-        System.out.println("8. Subir archivo adjunto (GridFS) [NUEVO]");
-        System.out.println("9. Aprobar documento (Transacción ACID) [NUEVO]");
-        System.out.println("7. Salir");
+        System.out.println("7. Subir archivo adjunto (GridFS)");
+        System.out.println("8. Aprobar documento (Transacción ACID)");
+        System.out.println("9. Mostrar últimas operaciones en Oplog");
+        System.out.println("10. Recuperar documentos desde timestamp (Oplog Recovery)");
+        System.out.println("11. Salir");
         System.out.print("Seleccione una opción: ");
     }
 
@@ -182,5 +195,67 @@ public class DocManageApplication {
         System.out.print("ID del documento a aprobar: ");
         String id = scanner.nextLine().trim();
         documentoRepository.aprobarDocumentoConTransaccion(id);
+    }
+
+    private static void mostrarUltimasOperacionesOplog() {
+        System.out.println("\n--- Últimas 20 Operaciones en Oplog (Solo Documentos) ---");
+        List<Document> operaciones = documentoRepository.obtenerUltimasOperacionesOplog(20);
+        if (operaciones.isEmpty()) {
+            System.out.println("No hay operaciones recientes en la colección de documentos.");
+        } else {
+            operaciones.forEach(op -> {
+                System.out.println("Timestamp: " + op.get("ts"));
+
+                String operacion = op.getString("op");
+                switch (operacion) {
+                    case "i": System.out.println("Operación: INSERT (Nuevo documento creado)"); break;
+                    case "u": System.out.println("Operación: UPDATE (Documento actualizado)"); break;
+                    case "d": System.out.println("Operación: DELETE (Documento eliminado)"); break;
+                    default: System.out.println("Operación: " + operacion);
+                }
+
+                System.out.println("Detalle: " + op.get("o"));
+                System.out.println("---");
+            });
+        }
+    }
+
+    private static void recuperarDesdeOplog() {
+        System.out.println("\n--- Recuperación desde Oplog ---");
+        System.out.println("Ingresa el timestamp en formato: YYYY-MM-DDTHH:MM:SS");
+        System.out.println("Ejemplo: 2025-12-10T20:30:45");
+        System.out.print("Timestamp (dejar vacío para recuperar las últimas 20 operaciones): ");
+        String input = scanner.nextLine().trim();
+
+        org.bson.BsonTimestamp desdeTs = null;
+        if (!input.isEmpty()) {
+            try {
+                // Soporta formatos como 2025-12-10T20:30:45 o con milisegundos
+                LocalDateTime ldt = LocalDateTime.parse(input,
+                        DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"));
+                long seconds = ldt.toEpochSecond(ZoneOffset.UTC);
+                desdeTs = new org.bson.BsonTimestamp((int) seconds, 0);
+                System.out.println("Filtrando operaciones a partir de: " + ldt);
+            } catch (Exception e) {
+                System.out.println("❌ Formato inválido. Usando las últimas 20 operaciones.");
+            }
+        }
+
+        List<Document> ops = documentoRepository.obtenerOperacionesOplogDesde(desdeTs, 20); // límite de 20 si no hay ts
+        if (ops.isEmpty()) {
+            System.out.println("No se encontraron operaciones para recuperar.");
+            return;
+        }
+
+        System.out.println("Se encontraron " + ops.size() + " operaciones relevantes en la colección 'documentos'.");
+        System.out.print("¿Aplicar recuperación? (s/n): ");
+        String confirmar = scanner.nextLine().trim().toLowerCase();
+
+        if ("s".equals(confirmar) || "sí".equals(confirmar)) {
+            int aplicadas = documentoRepository.aplicarRecuperacionOplog(ops);
+            System.out.println("✅ Recuperación completada. Operaciones aplicadas: " + aplicadas);
+        } else {
+            System.out.println("Recuperación cancelada.");
+        }
     }
 }

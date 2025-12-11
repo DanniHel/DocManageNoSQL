@@ -1,9 +1,6 @@
 package org.example.repository;
 
-import com.mongodb.client.ClientSession;
-import com.mongodb.client.MongoCollection;
-import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.TransactionBody;
+import com.mongodb.client.*;
 import com.mongodb.client.gridfs.GridFSBucket;
 import com.mongodb.client.gridfs.GridFSBuckets;
 import com.mongodb.client.model.*;
@@ -14,10 +11,17 @@ import org.bson.types.ObjectId;
 import org.example.config.MongoConfig;
 import org.example.model.Documento;
 
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.model.Sorts;
+import org.bson.conversions.Bson;
+import org.bson.types.BSONTimestamp;
+
+
 import java.io.FileInputStream;
 import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.util.*;
+
 
 public class DocumentoRepository {
     private final MongoCollection<Document> collection;
@@ -193,5 +197,86 @@ public class DocumentoRepository {
 
     private LocalDateTime convertirDateALocalDateTime(java.util.Date date) {
         return Documento.convertirDateALocalDateTime(date);
+    }
+
+    public List<Document> obtenerUltimasOperacionesOplog(int limite) {
+        MongoDatabase localDb = MongoConfig.getMongoClient().getDatabase("local");
+        MongoCollection<Document> oplog = localDb.getCollection("oplog.rs");
+
+        // Filtro: Solo operaciones en la base de datos 'docmanage' y colección 'documentos'
+        Bson filtro = Filters.eq("ns", MongoConfig.getDatabaseName() + ".documentos");
+
+        return oplog.find(filtro)
+                .sort(Sorts.descending("ts"))
+                .limit(limite)
+                .into(new ArrayList<>());
+    }
+
+
+
+    public int aplicarRecuperacionOplog(List<Document> operaciones) {
+        int aplicadas = 0;
+        MongoCollection<Document> collection = MongoConfig.getMongoClient()
+                .getDatabase(MongoConfig.getDatabaseName())
+                .getCollection("documentos");
+
+        for (Document op : operaciones) {
+            String operacion = op.getString("op");
+            try {
+                switch (operacion) {
+                    case "i": // Insert
+                        Document docToInsert = op.get("o", Document.class);
+                        collection.insertOne(docToInsert);
+                        aplicadas++;
+                        break;
+
+                    case "u": // Update
+                        Document o2 = op.get("o2", Document.class); // Filtro original (normalmente {_id: ...})
+                        Document updateDoc = op.get("o", Document.class);
+                        if (o2 != null && o2.containsKey("_id")) {
+                            Object id = o2.get("_id");
+                            // Si "o" tiene $set, $inc, etc., usar updateOne; si es documento completo, replace
+                            if (updateDoc.containsKey("$set") || updateDoc.containsKey("$inc") || updateDoc.containsKey("$unset")) {
+                                collection.updateOne(Filters.eq("_id", id), updateDoc);
+                            } else {
+                                collection.replaceOne(Filters.eq("_id", id), updateDoc);
+                            }
+                            aplicadas++;
+                        }
+                        break;
+
+                    case "d": // Delete
+                        Document deleteFilter = op.get("o", Document.class);
+                        if (deleteFilter != null && deleteFilter.containsKey("_id")) {
+                            collection.deleteOne(Filters.eq("_id", deleteFilter.get("_id")));
+                            aplicadas++;
+                        }
+                        break;
+                }
+            } catch (Exception e) {
+                System.err.println("Error aplicando operación oplog: " + op.toJson() + " -> " + e.getMessage());
+            }
+        }
+        return aplicadas;
+    }
+
+    public List<Document> obtenerOperacionesOplogDesde(org.bson.BsonTimestamp desdeTs, int limiteSiNoHayTs) {
+        MongoDatabase localDb = MongoConfig.getMongoClient().getDatabase("local");
+        MongoCollection<Document> oplog = localDb.getCollection("oplog.rs");
+
+        Bson filtro = Filters.eq("ns", MongoConfig.getDatabaseName() + ".documentos");
+
+        if (desdeTs != null) {
+            filtro = Filters.and(filtro, Filters.gt("ts", desdeTs));
+        }
+
+        FindIterable<Document> query = oplog.find(filtro)
+                .sort(Sorts.ascending("ts"));
+
+        if (desdeTs == null) {
+            query = query.limit(limiteSiNoHayTs);
+        }
+
+        return query.into(new ArrayList<>());
     }
 }
