@@ -279,53 +279,51 @@ public class DocumentoRepository {
                         }
                         break;
 
-                    case "u": // Update - Manejo completo del formato diff
+                    case "u": // Update - Manejo definitivo de todos los formatos diff
                         Document o2 = op.get("o2", Document.class);
                         if (o2 == null || !o2.containsKey("_id")) break;
 
                         ObjectId idUpdate = o2.getObjectId("_id");
                         Document updateObj = op.get("o", Document.class);
 
-                        Document updateCommand = new Document();
-                        AtomicBoolean hasChanges = new AtomicBoolean(false);
-
                         Document setFields = new Document();
                         Document unsetFields = new Document();
+                        AtomicBoolean hasChanges = new AtomicBoolean(false);
 
-                        // Caso diff
                         if (updateObj.containsKey("$v") || updateObj.containsKey("diff")) {
                             Document diff = updateObj.get("diff", Document.class);
                             if (diff != null) {
                                 diff.forEach((key, value) -> {
-                                    String field = key.substring(1);
-                                    if (key.startsWith("u")) {
-                                        Object fieldValue;
-                                        if (value instanceof Document) {
-                                            fieldValue = ((Document) value).get(field);
-                                        } else {
-                                            fieldValue = value; // formato compacto
-                                        }
-                                        if (fieldValue != null) {
-                                            setFields.append(field, fieldValue);
+                                    if (key.equals("u") && value instanceof Document subDoc) {
+                                        // Formato agrupado: u = {autor: "...", titulo: "...", version: 4}
+                                        subDoc.forEach((subKey, subValue) -> {
+                                            setFields.append(subKey, subValue);
                                             hasChanges.set(true);
-                                        }
+                                        });
+                                    } else if (key.startsWith("u.") && key.length() > 2) {
+                                        // Formato individual: "u.autor": "Danny"
+                                        String field = key.substring(2);
+                                        setFields.append(field, value);
+                                        hasChanges.set(true);
                                     } else if (key.startsWith("i")) {
+                                        String field = key.substring(1);
                                         setFields.append(field, value);
                                         hasChanges.set(true);
                                     } else if (key.startsWith("d")) {
+                                        String field = key.substring(1);
                                         unsetFields.append(field, 1);
                                         hasChanges.set(true);
                                     }
                                 });
                             }
                         } else {
-                            // Formato antiguo: replace completo
                             collection.replaceOne(Filters.eq("_id", idUpdate), updateObj);
                             aplicadas++;
                             System.out.println("Recuperado UPDATE completo: " + idUpdate);
-                            break;
+                            continue;
                         }
 
+                        Document updateCommand = new Document();
                         if (!setFields.isEmpty()) updateCommand.append("$set", setFields);
                         if (!unsetFields.isEmpty()) updateCommand.append("$unset", unsetFields);
 
@@ -353,6 +351,10 @@ public class DocumentoRepository {
             }
         }
         return aplicadas;
+    }
+
+    public long simularDesastre() {
+        return collection.deleteMany(new Document()).getDeletedCount();
     }
 
     public GridFSBucket getGridFSBucket() {

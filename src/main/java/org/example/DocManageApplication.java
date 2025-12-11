@@ -2,6 +2,7 @@ package org.example;
 
 import org.bson.Document;
 import org.bson.types.ObjectId;
+import org.bson.BsonTimestamp;
 import org.example.model.Documento;
 import org.example.repository.DocumentoRepository;
 
@@ -9,14 +10,18 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Scanner;
 
-import org.bson.BsonTimestamp;
-
 public class DocManageApplication {
+
+    // Configuración de zona horaria y formato (todo en hora local)
+    private static final ZoneId ZONA_LOCAL = ZoneId.systemDefault(); // Ej: America/Bogota
+    private static final DateTimeFormatter FORMATO_TIMESTAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
+
     private static final DocumentoRepository documentoRepository = new DocumentoRepository();
     private static final Scanner scanner = new Scanner(System.in);
 
@@ -35,11 +40,12 @@ public class DocManageApplication {
                 case 4 -> mostrarTodosLosDocumentos();
                 case 5 -> actualizarDocumento();
                 case 6 -> eliminarDocumento();
-                case 7 -> descargarArchivoAdjunto();      // NUEVA OPCIÓN
+                case 7 -> descargarArchivoAdjunto();
                 case 8 -> aprobarDocumentoTransaccion();
                 case 9 -> mostrarUltimasOperacionesOplog();
                 case 10 -> recuperarDesdeOplog();
-                case 11 -> {
+                case 11 -> simularDesastreYRecuperacion();
+                case 12 -> {
                     System.out.println("Saliendo del sistema...");
                     continuar = false;
                 }
@@ -57,11 +63,12 @@ public class DocManageApplication {
         System.out.println("4. Mostrar todos los documentos");
         System.out.println("5. Actualizar documento (con opción de cambiar archivo)");
         System.out.println("6. Eliminar documento");
-        System.out.println("7. Descargar archivo adjunto de un documento");  // NUEVA
+        System.out.println("7. Descargar archivo adjunto de un documento");
         System.out.println("8. Aprobar documento (Transacción ACID)");
         System.out.println("9. Mostrar últimas operaciones en Oplog");
         System.out.println("10. Recuperar documentos desde timestamp (Oplog Recovery)");
-        System.out.println("11. Salir");
+        System.out.println("11. Simular desastre y recuperación automática [DEMO]");
+        System.out.println("12. Salir");
         System.out.print("Seleccione una opción: ");
     }
 
@@ -76,7 +83,7 @@ public class DocManageApplication {
         }
     }
 
-    // === 1. CREAR DOCUMENTO (ya bien implementado) ===
+    // === 1. CREAR DOCUMENTO ===
     private static void crearDocumento() {
         System.out.println("\n--- Crear Nuevo Documento ---");
         System.out.print("Título: ");
@@ -123,7 +130,6 @@ public class DocManageApplication {
         imprimirDocumentos(docs);
     }
 
-    // Método auxiliar para imprimir con info de archivo
     private static void imprimirDocumentos(List<Documento> docs) {
         if (docs.isEmpty()) {
             System.out.println("No hay documentos.");
@@ -137,7 +143,7 @@ public class DocManageApplication {
         }
     }
 
-    // === 5. ACTUALIZAR DOCUMENTO (ahora con soporte para cambiar archivo) ===
+    // === 5. ACTUALIZAR DOCUMENTO ===
     private static void actualizarDocumento() {
         System.out.println("\n--- Actualizar Documento ---");
         System.out.print("Ingrese el ID del documento: ");
@@ -172,7 +178,6 @@ public class DocManageApplication {
         String nTipo = scanner.nextLine().trim();
         if (!nTipo.isEmpty()) docExistente.setTipoDocumento(nTipo);
 
-        // Preguntar por nuevo archivo
         String nuevaRuta = null;
         String nuevoNombre = null;
         if (docExistente.getArchivoId() != null) {
@@ -212,7 +217,7 @@ public class DocManageApplication {
         }
     }
 
-    // === 7. NUEVA OPCIÓN: DESCARGAR ARCHIVO ADJUNTO ===
+    // === 7. DESCARGAR ARCHIVO ===
     private static void descargarArchivoAdjunto() {
         System.out.println("\n--- Descargar Archivo Adjunto ---");
         System.out.print("Ingrese el ID del documento: ");
@@ -247,21 +252,20 @@ public class DocManageApplication {
         documentoRepository.aprobarDocumentoConTransaccion(id);
     }
 
-    // === 9. OPLOG ===
+    // === 9. MOSTRAR OPLOG (timestamps en hora local) ===
     private static void mostrarUltimasOperacionesOplog() {
-        System.out.println("\n--- Últimas 20 Operaciones en Oplog (Solo Documentos) ---");
+        System.out.println("\n--- Últimas 20 Operaciones en Oplog ---");
         List<Document> operaciones = documentoRepository.obtenerUltimasOperacionesOplog(20);
         if (operaciones.isEmpty()) {
             System.out.println("No hay operaciones recientes en la colección de documentos.");
         } else {
             operaciones.forEach(op -> {
-                // CORRECTO: Usar BsonTimestamp (nuevo paquete)
-                org.bson.BsonTimestamp bsonTs = op.get("ts", org.bson.BsonTimestamp.class);
+                BsonTimestamp bsonTs = op.get("ts", BsonTimestamp.class);
                 String timestampLegible = "Timestamp inválido";
                 if (bsonTs != null) {
-                    // bsonTs.getTime() devuelve segundos desde epoch en UTC
-                    LocalDateTime fechaHora = LocalDateTime.ofEpochSecond(bsonTs.getTime(), 0, ZoneOffset.UTC);
-                    timestampLegible = fechaHora.format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"));
+                    LocalDateTime utc = LocalDateTime.ofEpochSecond(bsonTs.getTime(), 0, ZoneOffset.UTC);
+                    LocalDateTime local = utc.atZone(ZoneOffset.UTC).withZoneSameInstant(ZONA_LOCAL).toLocalDateTime();
+                    timestampLegible = local.format(FORMATO_TIMESTAMP);
                 }
 
                 System.out.println("📅 Timestamp: " + timestampLegible);
@@ -275,17 +279,13 @@ public class DocManageApplication {
                 };
                 System.out.println("Operación: " + textoOp);
 
-                // Mostrar ID del documento si está disponible
                 Object o = op.get("o");
                 Object o2 = op.get("o2");
                 ObjectId docId = null;
 
-                // Para INSERT y DELETE: _id está en "o"
                 if (o instanceof Document docO && docO.containsKey("_id")) {
                     docId = docO.getObjectId("_id");
-                }
-                // Para UPDATE: _id está en "o2"
-                else if (o2 instanceof Document docO2 && docO2.containsKey("_id")) {
+                } else if (o2 instanceof Document docO2 && docO2.containsKey("_id")) {
                     docId = docO2.getObjectId("_id");
                 }
 
@@ -297,28 +297,25 @@ public class DocManageApplication {
                 System.out.println("---");
             });
         }
+        System.out.println("\n💡 Nota: Los timestamps están en tu hora local. ¡Cópialos directamente para la recuperación!");
     }
 
-    // === 10. RECUPERACIÓN ===
+    // === 10. RECUPERACIÓN (input interpretado como hora local) ===
     private static void recuperarDesdeOplog() {
         System.out.println("\n--- Recuperación desde Oplog ---");
-        System.out.println("Ingresa el timestamp en formato: YYYY-MM-DDTHH:MM:SS");
+        System.out.println("Ingresa el timestamp en formato: YYYY-MM-DDTHH:MM:SS (hora local)");
         System.out.println("Ejemplo: 2025-12-10T20:30:45");
         System.out.print("Timestamp (dejar vacío para recuperar las últimas 20 operaciones): ");
         String input = scanner.nextLine().trim();
 
-        org.bson.BsonTimestamp desdeTs = null;
+        BsonTimestamp desdeTs = null;
         if (!input.isEmpty()) {
             try {
-                LocalDateTime ldt = LocalDateTime.parse(input, DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"));
-
-                // CORREGIDO: Interpretar el input como hora LOCAL (-05:00), luego convertir a UTC
-                long seconds = ldt.toEpochSecond(ZoneOffset.ofHours(-5)); // Ajusta según tu zona: -5 para Colombia/Perú
-                // O mejor aún, usar la zona del sistema:
-                // long seconds = ldt.toEpochSecond(ZoneId.systemDefault().getRules().getOffset(ldt));
-
-                desdeTs = new org.bson.BsonTimestamp((int) seconds, 0);
-                System.out.println("Filtrando operaciones a partir de: " + ldt + " (hora local)");
+                LocalDateTime ldtLocal = LocalDateTime.parse(input, FORMATO_TIMESTAMP);
+                // Convertir hora local → UTC
+                long secondsUTC = ldtLocal.atZone(ZONA_LOCAL).withZoneSameInstant(ZoneOffset.UTC).toEpochSecond();
+                desdeTs = new BsonTimestamp((int) secondsUTC, 0);
+                System.out.println("Filtrando operaciones a partir de: " + ldtLocal + " (hora local)");
             } catch (Exception e) {
                 System.out.println("❌ Formato inválido. Usando las últimas 20 operaciones.");
             }
@@ -340,5 +337,46 @@ public class DocManageApplication {
         } else {
             System.out.println("Recuperación cancelada.");
         }
+    }
+
+    private static void simularDesastreYRecuperacion() {
+        System.out.println("\n--- SIMULACIÓN DE DESASTRE Y RECUPERACIÓN ---");
+        System.out.println("¡ADVERTENCIA! Esto eliminará TODOS los documentos y luego intentará recuperarlos usando el oplog.");
+        System.out.print("¿Estás seguro? (s/n): ");
+        String confirmar = scanner.nextLine().trim().toLowerCase();
+        if (!"s".equals(confirmar) && !"sí".equals(confirmar)) {
+            System.out.println("Operación cancelada.");
+            return;
+        }
+
+        // Paso 1: Mostrar estado actual
+        System.out.println("\nEstado actual (antes del desastre):");
+        mostrarTodosLosDocumentos();
+
+        // Paso 2: Simular desastre - borrar todos los documentos
+        System.out.println("\n🔥 Simulando desastre: Eliminando todos los documentos...");
+        long borrados = documentoRepository.simularDesastre();
+        System.out.println("Documentos eliminados: " + borrados);
+
+        // Verificar estado después del desastre
+        System.out.println("\nEstado después del desastre:");
+        mostrarTodosLosDocumentos();
+
+        // Paso 3: Recuperación automática usando oplog (desde el principio del tiempo)
+        System.out.println("\n🔄 Iniciando recuperación automática usando oplog...");
+        List<Document> todasLasOps = documentoRepository.obtenerOperacionesOplogDesde(null, 1000); // máximo razonable
+        if (todasLasOps.isEmpty()) {
+            System.out.println("No se encontraron operaciones en el oplog para recuperar.");
+        } else {
+            System.out.println("Aplicando " + todasLasOps.size() + " operaciones del oplog...");
+            int aplicadas = documentoRepository.aplicarRecuperacionOplog(todasLasOps);
+            System.out.println("✅ Recuperación completada. Operaciones aplicadas: " + aplicadas);
+        }
+
+        // Paso 4: Mostrar estado final
+        System.out.println("\nEstado final después de la recuperación:");
+        mostrarTodosLosDocumentos();
+
+        System.out.println("\n¡Demostración completada! El sistema ha sido restaurado usando el oplog.");
     }
 }
