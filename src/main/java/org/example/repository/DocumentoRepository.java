@@ -20,6 +20,9 @@ import java.util.Date;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import static com.mongodb.client.model.Filters.*;
+import static com.mongodb.client.model.Sorts.descending;
+
 // Imports para oplog
 import org.bson.conversions.Bson;
 import com.mongodb.client.model.Sorts;
@@ -351,6 +354,39 @@ public class DocumentoRepository {
             }
         }
         return aplicadas;
+    }
+
+    public List<Documento> buscarPorRangoFechas(LocalDateTime desde, LocalDateTime hasta) {
+        Bson filtro = new Document();
+
+        if (desde != null && hasta != null) {
+            filtro = and(
+                    gte("fechaCreacion", Documento.convertirLocalDateTimeADate(desde)),
+                    lte("fechaCreacion", Documento.convertirLocalDateTimeADate(hasta))
+            );
+        } else if (desde != null) {
+            filtro = gte("fechaCreacion", Documento.convertirLocalDateTimeADate(desde));
+        } else if (hasta != null) {
+            filtro = lte("fechaCreacion", Documento.convertirLocalDateTimeADate(hasta));
+        }
+
+        // Usamos explícitamente el índice: ordenamos por fechaCreacion descendente
+        return collection.find(filtro)
+                .sort(descending("fechaCreacion"))
+                .map(doc -> {
+                    Documento d = new Documento();
+                    d.setId(doc.getObjectId("_id"));
+                    d.setTitulo(doc.getString("titulo"));
+                    d.setAutor(doc.getString("autor"));
+                    d.setTipoDocumento(doc.getString("tipoDocumento"));
+                    d.setFechaCreacion(convertirDateALocalDateTime(doc.getDate("fechaCreacion")));
+                    d.setFechaModificacion(convertirDateALocalDateTime(doc.getDate("fechaModificacion")));
+                    d.setEstado(doc.getString("estado"));
+                    d.setVersion(doc.getInteger("version", 1));
+                    d.setArchivoId(doc.getObjectId("archivoId"));
+                    return d;
+                })
+                .into(new ArrayList<>());
     }
 
     public long simularDesastre() {

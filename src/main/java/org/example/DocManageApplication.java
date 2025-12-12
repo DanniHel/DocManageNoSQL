@@ -1,5 +1,6 @@
 package org.example;
 
+import com.mongodb.client.model.Filters;
 import org.bson.Document;
 import org.bson.types.ObjectId;
 import org.bson.BsonTimestamp;
@@ -9,6 +10,7 @@ import org.example.repository.DocumentoRepository;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -37,15 +39,16 @@ public class DocManageApplication {
                 case 1 -> crearDocumento();
                 case 2 -> buscarDocumentosPorAutor();
                 case 3 -> buscarDocumentosPorTipo();
-                case 4 -> mostrarTodosLosDocumentos();
-                case 5 -> actualizarDocumento();
-                case 6 -> eliminarDocumento();
-                case 7 -> descargarArchivoAdjunto();
-                case 8 -> aprobarDocumentoTransaccion();
-                case 9 -> mostrarUltimasOperacionesOplog();
-                case 10 -> recuperarDesdeOplog();
-                case 11 -> simularDesastreYRecuperacion();
-                case 12 -> {
+                case 4 -> buscarPorRangoFechas();
+                case 5 -> mostrarTodosLosDocumentos();
+                case 6 -> actualizarDocumento();
+                case 7 -> eliminarDocumento();
+                case 8 -> descargarArchivoAdjunto();
+                case 9 -> aprobarDocumentoTransaccion();
+                case 10 -> mostrarUltimasOperacionesOplog();
+                case 11 -> recuperarDesdeOplog();
+                case 12 -> simularDesastreYRecuperacion();
+                case 13 -> {
                     System.out.println("Saliendo del sistema...");
                     continuar = false;
                 }
@@ -60,15 +63,16 @@ public class DocManageApplication {
         System.out.println("1. Crear nuevo documento (con archivo opcional)");
         System.out.println("2. Buscar documentos por autor");
         System.out.println("3. Buscar documentos por tipo");
-        System.out.println("4. Mostrar todos los documentos");
-        System.out.println("5. Actualizar documento (con opción de cambiar archivo)");
-        System.out.println("6. Eliminar documento");
-        System.out.println("7. Descargar archivo adjunto de un documento");
-        System.out.println("8. Aprobar documento (Transacción ACID)");
-        System.out.println("9. Mostrar últimas operaciones en Oplog");
-        System.out.println("10. Recuperar documentos desde timestamp (Oplog Recovery)");
-        System.out.println("11. Simular desastre y recuperación automática [DEMO]");
-        System.out.println("12. Salir");
+        System.out.println("4. Buscar documentos por rango de fechas");
+        System.out.println("5. Mostrar todos los documentos");
+        System.out.println("6. Actualizar documento (con opción de cambiar archivo)");
+        System.out.println("7. Eliminar documento");
+        System.out.println("8. Descargar archivo adjunto de un documento");
+        System.out.println("9. Aprobar documento (Transacción ACID)");
+        System.out.println("10. Mostrar últimas operaciones en Oplog");
+        System.out.println("11. Recuperar documentos desde timestamp (Oplog Recovery)");
+        System.out.println("12. Simular desastre y recuperación automática [DEMO]");
+        System.out.println("13. Salir");
         System.out.print("Seleccione una opción: ");
     }
 
@@ -97,7 +101,7 @@ public class DocManageApplication {
         String rutaArchivo = scanner.nextLine().trim();
         String nombreArchivo = "";
         if (!rutaArchivo.isBlank()) {
-            System.out.print("Nombre con el que se guardará el archivo (Enter para usar nombre original): ");
+            System.out.print("Nombre del archivo, incluye su extension (Enter para usar nombre original): ");
             nombreArchivo = scanner.nextLine().trim();
             if (nombreArchivo.isBlank()) {
                 nombreArchivo = new java.io.File(rutaArchivo).getName();
@@ -225,23 +229,69 @@ public class DocManageApplication {
 
         Documento doc = documentoRepository.obtenerDocumentoPorId(id);
         if (doc == null || doc.getArchivoId() == null) {
-            System.out.println("❌ Documento no encontrado o no tiene archivo adjunto.");
+            System.out.println("Documento no encontrado o no tiene archivo adjunto.");
             return;
         }
 
-        System.out.print("Ruta completa para guardar el archivo (ej: C:\\Users\\Acer\\Downloads\\miarchivo.pdf): ");
-        String rutaDestino = scanner.nextLine().trim();
-        if (rutaDestino.isBlank()) {
-            System.out.println("Ruta inválida.");
-            return;
+        // Obtener metadatos del archivo desde GridFS para saber su nombre original
+        Document fileMetadata = documentoRepository.getGridFSBucket()
+                .find(Filters.eq("_id", doc.getArchivoId()))
+                .first().getMetadata();
+
+        String nombreOriginal = fileMetadata != null ? fileMetadata.getString("filename") : "archivo_descargado";
+        if (nombreOriginal == null || nombreOriginal.isBlank()) {
+            nombreOriginal = "archivo_" + doc.getArchivoId();
         }
 
-        try (OutputStream outputStream = new FileOutputStream(rutaDestino)) {
+        System.out.print("Ruta completa para guardar (puede ser solo carpeta o archivo completo): ");
+        String inputRuta = scanner.nextLine().trim();
+
+        String rutaFinal;
+        if (inputRuta.isBlank()) {
+            rutaFinal = System.getProperty("user.home") + "/Downloads/" + nombreOriginal;
+        } else {
+            java.io.File file = new java.io.File(inputRuta);
+            if (file.isDirectory() || inputRuta.endsWith("\\") || inputRuta.endsWith("/")) {
+                // Es una carpeta → agregar nombre original
+                rutaFinal = inputRuta.replaceAll("[\\\\/]+$", "") + java.io.File.separator + nombreOriginal;
+            } else {
+                // Es ruta completa con nombre → usar tal cual
+                rutaFinal = inputRuta;
+            }
+        }
+
+        System.out.println("Guardando como: " + rutaFinal);
+
+        try (OutputStream outputStream = new FileOutputStream(rutaFinal)) {
             documentoRepository.getGridFSBucket().downloadToStream(doc.getArchivoId(), outputStream);
-            System.out.println("✅ Archivo descargado exitosamente en: " + rutaDestino);
+            System.out.println("Archivo descargado exitosamente!");
         } catch (IOException e) {
-            System.err.println("❌ Error al descargar el archivo: " + e.getMessage());
+            System.err.println("Error al guardar el archivo: " + e.getMessage());
+            System.out.println("Posibles causas:");
+            System.out.println("  • La carpeta no existe");
+            System.out.println("  • No tienes permisos de escritura");
+            System.out.println("  • El archivo está abierto en otro programa");
         }
+    }
+
+    private static String getString(String contentType) {
+        String extension = "";
+        if (contentType != null) {
+            extension = switch (contentType) {
+                case "image/jpeg", "image/jpg" -> ".jpg";
+                case "image/png" -> ".png";
+                case "image/gif" -> ".gif";
+                case "image/webp" -> ".webp";
+                case "application/pdf" -> ".pdf";
+                case "video/mp4" -> ".mp4";
+                case "video/webm" -> ".webm";
+                case "text/plain" -> ".txt";
+                case "application/msword" -> ".doc";
+                case "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> ".docx";
+                default -> "";
+            };
+        }
+        return extension;
     }
 
     // === 8. APROBAR ===
@@ -297,7 +347,6 @@ public class DocManageApplication {
                 System.out.println("---");
             });
         }
-        System.out.println("\n💡 Nota: Los timestamps están en tu hora local. ¡Cópialos directamente para la recuperación!");
     }
 
     // === 10. RECUPERACIÓN (input interpretado como hora local) ===
@@ -378,5 +427,33 @@ public class DocManageApplication {
         mostrarTodosLosDocumentos();
 
         System.out.println("\n¡Demostración completada! El sistema ha sido restaurado usando el oplog.");
+    }
+
+    private static void buscarPorRangoFechas() {
+        System.out.println("\n--- Buscar Documentos por Rango de Fechas ---");
+        System.out.println("Formato: YYYY-MM-DD (ej: 2025-12-10)");
+        System.out.print("Fecha desde (dejar vacío para sin límite inferior): ");
+        String desdeStr = scanner.nextLine().trim();
+        System.out.print("Fecha hasta (dejar vacío para sin límite superior): ");
+        String hastaStr = scanner.nextLine().trim();
+
+        LocalDateTime desde = null;
+        LocalDateTime hasta = null;
+
+        try {
+            if (!desdeStr.isBlank()) {
+                desde = LocalDate.parse(desdeStr).atStartOfDay();
+            }
+            if (!hastaStr.isBlank()) {
+                hasta = LocalDate.parse(hastaStr).atTime(23, 59, 59, 999_999_999);
+            }
+        } catch (Exception e) {
+            System.out.println("Formato de fecha inválido. Use YYYY-MM-DD");
+            return;
+        }
+
+        List<Documento> resultados = documentoRepository.buscarPorRangoFechas(desde, hasta);
+        System.out.println("\nResultados encontrados: " + resultados.size() + "\n");
+        imprimirDocumentos(resultados);
     }
 }
