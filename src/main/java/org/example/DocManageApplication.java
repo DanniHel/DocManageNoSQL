@@ -18,18 +18,23 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Scanner;
 
+// Sistema de Gestión Documental Corporativo con MongoDB
+// Implementa transacciones ACID multi-documento y réplica sets para alta disponibilidad
 public class DocManageApplication {
 
-    // Configuración de zona horaria y formato (todo en hora local)
-    private static final ZoneId ZONA_LOCAL = ZoneId.systemDefault(); // Ej: America/Bogota
+    // Configuración de zona horaria para visualización de timestamps
+    private static final ZoneId ZONA_LOCAL = ZoneId.systemDefault();
     private static final DateTimeFormatter FORMATO_TIMESTAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
 
+    // Componentes principales del sistema
     private static final DocumentoRepository documentoRepository = new DocumentoRepository();
     private static final Scanner scanner = new Scanner(System.in);
 
+    // Punto de entrada del sistema
     public static void main(String[] args) {
         boolean continuar = true;
-        System.out.println("=== Sistema de Gestión Documental DocManageNoSQL ===");
+        System.out.println("=== SISTEMA DE GESTIÓN DOCUMENTAL DOCMANAGENOSQL ===");
+        System.out.println("MongoDB ACID Transactions | Alta Disponibilidad");
 
         while (continuar) {
             mostrarMenu();
@@ -49,59 +54,62 @@ public class DocManageApplication {
                 case 11 -> recuperarDesdeOplog();
                 case 12 -> simularDesastreYRecuperacion();
                 case 13 -> {
-                    System.out.println("Saliendo del sistema...");
+                    System.out.println("Finalizando sesión del sistema de gestión documental...");
                     continuar = false;
                 }
-                default -> System.out.println("Opción no válida. Por favor, intente de nuevo.");
+                default -> System.out.println("Opción no válida. Seleccione una opción del menú.");
             }
         }
         scanner.close();
+        System.out.println("Sistema cerrado exitosamente.");
     }
 
+    // Interfaz de usuario principal
     private static void mostrarMenu() {
-        System.out.println("\n--- Menú Principal ---");
-        System.out.println("1. Crear nuevo documento (con archivo opcional)");
-        System.out.println("2. Buscar documentos por autor");
-        System.out.println("3. Buscar documentos por tipo");
-        System.out.println("4. Buscar documentos por rango de fechas");
-        System.out.println("5. Mostrar todos los documentos");
-        System.out.println("6. Actualizar documento (con opción de cambiar archivo)");
-        System.out.println("7. Eliminar documento");
-        System.out.println("8. Descargar archivo adjunto de un documento");
-        System.out.println("9. Aprobar documento (Transacción ACID)");
-        System.out.println("10. Mostrar últimas operaciones en Oplog");
-        System.out.println("11. Recuperar documentos desde timestamp (Oplog Recovery)");
-        System.out.println("12. Simular desastre y recuperación automática [DEMO]");
-        System.out.println("13. Salir");
+        System.out.println("\n--- MENÚ PRINCIPAL ---");
+        System.out.println("1.  Registrar nuevo documento");
+        System.out.println("2.  Consultar documentos por autor");
+        System.out.println("3.  Consultar documentos por tipo");
+        System.out.println("4.  Consultar documentos por rango de fechas");
+        System.out.println("5.  Listar todos los documentos");
+        System.out.println("6.  Modificar documento existente");
+        System.out.println("7.  Eliminar documento");
+        System.out.println("8.  Descargar archivo adjunto");
+        System.out.println("9.  Ejecutar aprobación con transacción ACID");
+        System.out.println("10. Monitorear operaciones del oplog");
+        System.out.println("11. Ejecutar recuperación desde oplog");
+        System.out.println("12. Demostración: Recuperación ante desastres");
+        System.out.println("13. Salir del sistema");
         System.out.print("Seleccione una opción: ");
     }
 
+    // Validación de entrada del usuario
     private static int obtenerOpcion() {
         while (true) {
             try {
                 String input = scanner.nextLine().trim();
                 return Integer.parseInt(input);
             } catch (NumberFormatException e) {
-                System.out.print("Entrada inválida. Ingrese un número: ");
+                System.out.print("Entrada inválida. Ingrese un número entre 1 y 13: ");
             }
         }
     }
 
-    // === 1. CREAR DOCUMENTO ===
+    // 1. Registro de documentos
     private static void crearDocumento() {
-        System.out.println("\n--- Crear Nuevo Documento ---");
+        System.out.println("\n--- REGISTRO DE NUEVO DOCUMENTO ---");
         System.out.print("Título: ");
         String titulo = scanner.nextLine().trim();
         System.out.print("Autor: ");
         String autor = scanner.nextLine().trim();
-        System.out.print("Tipo (PDF/DOC/IMAGEN/VIDEO): ");
+        System.out.print("Tipo de documento (PDF/DOC/IMAGEN/VIDEO/TXT): ");
         String tipo = scanner.nextLine().trim();
 
-        System.out.print("Ruta del archivo (dejar vacío si no hay): ");
+        System.out.print("Ruta del archivo adjunto (opcional): ");
         String rutaArchivo = scanner.nextLine().trim();
         String nombreArchivo = "";
         if (!rutaArchivo.isBlank()) {
-            System.out.print("Nombre del archivo, incluye su extension (Enter para usar nombre original): ");
+            System.out.print("Nombre personalizado del archivo (opcional): ");
             nombreArchivo = scanner.nextLine().trim();
             if (nombreArchivo.isBlank()) {
                 nombreArchivo = new java.io.File(rutaArchivo).getName();
@@ -110,66 +118,74 @@ public class DocManageApplication {
 
         Documento documento = new Documento(titulo, autor, tipo);
         documentoRepository.guardarDocumentoConArchivo(documento, rutaArchivo.isBlank() ? null : rutaArchivo, nombreArchivo);
-        System.out.println("✅ Documento creado exitosamente." +
-                (documento.getArchivoId() != null ? " (con archivo adjunto ID: " + documento.getArchivoId() + ")" : " (sin archivo)"));
+        System.out.println("Documento registrado exitosamente. ID: " + documento.getId() +
+                (documento.getArchivoId() != null ? " | Archivo adjunto: " + documento.getArchivoId() : ""));
     }
 
-    // === BÚSQUEDAS ===
+    // 2. Consulta por autor
     private static void buscarDocumentosPorAutor() {
-        System.out.print("Ingrese autor: ");
+        System.out.print("Ingrese autor para consulta: ");
         String autor = scanner.nextLine().trim();
         List<Documento> docs = documentoRepository.obtenerDocumentosPorAutor(autor);
         imprimirDocumentos(docs);
+        System.out.println("Total de documentos encontrados: " + docs.size());
     }
 
+    // 3. Consulta por tipo
     private static void buscarDocumentosPorTipo() {
-        System.out.print("Ingrese tipo: ");
+        System.out.print("Ingrese tipo de documento para consulta: ");
         String tipo = scanner.nextLine().trim();
         List<Documento> docs = documentoRepository.obtenerDocumentosPorTipo(tipo);
         imprimirDocumentos(docs);
+        System.out.println("Total de documentos encontrados: " + docs.size());
     }
 
+    // 5. Listado completo
     private static void mostrarTodosLosDocumentos() {
+        System.out.println("\n--- INVENTARIO COMPLETO DE DOCUMENTOS ---");
         List<Documento> docs = documentoRepository.obtenerTodosLosDocumentos();
         imprimirDocumentos(docs);
+        System.out.println("Total en sistema: " + docs.size() + " documentos");
     }
 
+    // Formateador de resultados
     private static void imprimirDocumentos(List<Documento> docs) {
         if (docs.isEmpty()) {
-            System.out.println("No hay documentos.");
+            System.out.println("No se encontraron documentos.");
         } else {
             docs.forEach(doc -> {
                 System.out.println(doc);
                 if (doc.getArchivoId() != null) {
-                    System.out.println("   📎 Archivo adjunto: " + doc.getArchivoId());
+                    System.out.println("   Archivo adjunto disponible");
                 }
+                System.out.println("---");
             });
         }
     }
 
-    // === 5. ACTUALIZAR DOCUMENTO ===
+    // 6. Modificación de documentos
     private static void actualizarDocumento() {
-        System.out.println("\n--- Actualizar Documento ---");
-        System.out.print("Ingrese el ID del documento: ");
+        System.out.println("\n--- MODIFICACIÓN DE DOCUMENTO ---");
+        System.out.print("ID del documento a modificar: ");
         String id = scanner.nextLine().trim();
 
         Documento docExistente = documentoRepository.obtenerDocumentoPorId(id);
         if (docExistente == null) {
-            System.out.println("❌ Documento no encontrado.");
+            System.out.println("Documento no encontrado en el sistema.");
             return;
         }
 
-        System.out.println("Versión actual en BD: " + docExistente.getVersion());
-        System.out.print("Ingrese la versión actual para confirmar (optimistic locking): ");
+        System.out.println("Versión actual: " + docExistente.getVersion());
+        System.out.print("Ingrese versión actual para verificación: ");
         int versionInput;
         try {
             versionInput = Integer.parseInt(scanner.nextLine().trim());
         } catch (NumberFormatException e) {
-            System.out.println("Versión inválida.");
+            System.out.println("Formato de versión inválido.");
             return;
         }
 
-        System.out.println("Deje en blanco para mantener el valor actual:");
+        System.out.println("Ingrese nuevos valores (vacío para mantener actual):");
         System.out.print("Nuevo título [" + docExistente.getTitulo() + "]: ");
         String nTitulo = scanner.nextLine().trim();
         if (!nTitulo.isEmpty()) docExistente.setTitulo(nTitulo);
@@ -185,12 +201,12 @@ public class DocManageApplication {
         String nuevaRuta = null;
         String nuevoNombre = null;
         if (docExistente.getArchivoId() != null) {
-            System.out.println("Archivo actual: " + docExistente.getArchivoId());
+            System.out.println("Archivo adjunto actual registrado");
         }
-        System.out.print("¿Reemplazar archivo adjunto? Ruta nueva (dejar vacío para no cambiar): ");
+        System.out.print("Ruta de nuevo archivo adjunto (opcional): ");
         nuevaRuta = scanner.nextLine().trim();
         if (!nuevaRuta.isBlank()) {
-            System.out.print("Nombre para el nuevo archivo (Enter para usar nombre original): ");
+            System.out.print("Nombre del nuevo archivo (opcional): ");
             nuevoNombre = scanner.nextLine().trim();
             if (nuevoNombre.isBlank()) {
                 nuevoNombre = new java.io.File(nuevaRuta).getName();
@@ -204,46 +220,45 @@ public class DocManageApplication {
         );
 
         if (exito) {
-            System.out.println("✅ Documento actualizado correctamente (versión incrementada).");
+            System.out.println("Documento modificado exitosamente. Nueva versión: " + (versionInput + 1));
         } else {
-            System.out.println("❌ ERROR: No se pudo actualizar. Posible conflicto de concurrencia.");
+            System.out.println("No se pudo completar la modificación. Verifique la versión.");
         }
     }
 
-    // === 6. ELIMINAR ===
+    // 7. Eliminación de documentos
     private static void eliminarDocumento() {
-        System.out.print("Ingrese ID a eliminar: ");
+        System.out.print("ID del documento a eliminar: ");
         String id = scanner.nextLine().trim();
         if (documentoRepository.eliminarDocumento(id)) {
-            System.out.println("✅ Documento y archivo adjunto eliminados correctamente.");
+            System.out.println("Documento eliminado del sistema.");
         } else {
-            System.out.println("❌ No encontrado.");
+            System.out.println("Documento no encontrado.");
         }
     }
 
-    // === 7. DESCARGAR ARCHIVO ===
+    // 8. Descarga de archivos
     private static void descargarArchivoAdjunto() {
-        System.out.println("\n--- Descargar Archivo Adjunto ---");
-        System.out.print("Ingrese el ID del documento: ");
+        System.out.println("\n--- DESCARGA DE ARCHIVO ADJUNTO ---");
+        System.out.print("ID del documento: ");
         String id = scanner.nextLine().trim();
 
         Documento doc = documentoRepository.obtenerDocumentoPorId(id);
         if (doc == null || doc.getArchivoId() == null) {
-            System.out.println("Documento no encontrado o no tiene archivo adjunto.");
+            System.out.println("Documento sin archivo adjunto disponible.");
             return;
         }
 
-        // Obtener metadatos del archivo desde GridFS para saber su nombre original
         Document fileMetadata = documentoRepository.getGridFSBucket()
                 .find(Filters.eq("_id", doc.getArchivoId()))
                 .first().getMetadata();
 
-        String nombreOriginal = fileMetadata != null ? fileMetadata.getString("filename") : "archivo_descargado";
+        String nombreOriginal = fileMetadata != null ? fileMetadata.getString("filename") : "documento_descargado";
         if (nombreOriginal == null || nombreOriginal.isBlank()) {
             nombreOriginal = "archivo_" + doc.getArchivoId();
         }
 
-        System.out.print("Ruta completa para guardar (puede ser solo carpeta o archivo completo): ");
+        System.out.print("Ruta de destino: ");
         String inputRuta = scanner.nextLine().trim();
 
         String rutaFinal;
@@ -252,79 +267,53 @@ public class DocManageApplication {
         } else {
             java.io.File file = new java.io.File(inputRuta);
             if (file.isDirectory() || inputRuta.endsWith("\\") || inputRuta.endsWith("/")) {
-                // Es una carpeta → agregar nombre original
                 rutaFinal = inputRuta.replaceAll("[\\\\/]+$", "") + java.io.File.separator + nombreOriginal;
             } else {
-                // Es ruta completa con nombre → usar tal cual
                 rutaFinal = inputRuta;
             }
         }
 
-        System.out.println("Guardando como: " + rutaFinal);
+        System.out.println("Destino: " + rutaFinal);
 
         try (OutputStream outputStream = new FileOutputStream(rutaFinal)) {
             documentoRepository.getGridFSBucket().downloadToStream(doc.getArchivoId(), outputStream);
-            System.out.println("Archivo descargado exitosamente!");
+            System.out.println("Archivo descargado exitosamente.");
         } catch (IOException e) {
-            System.err.println("Error al guardar el archivo: " + e.getMessage());
-            System.out.println("Posibles causas:");
-            System.out.println("  • La carpeta no existe");
-            System.out.println("  • No tienes permisos de escritura");
-            System.out.println("  • El archivo está abierto en otro programa");
+            System.out.println("Error en la descarga: " + e.getMessage());
         }
     }
 
-    private static String getString(String contentType) {
-        String extension = "";
-        if (contentType != null) {
-            extension = switch (contentType) {
-                case "image/jpeg", "image/jpg" -> ".jpg";
-                case "image/png" -> ".png";
-                case "image/gif" -> ".gif";
-                case "image/webp" -> ".webp";
-                case "application/pdf" -> ".pdf";
-                case "video/mp4" -> ".mp4";
-                case "video/webm" -> ".webm";
-                case "text/plain" -> ".txt";
-                case "application/msword" -> ".doc";
-                case "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> ".docx";
-                default -> "";
-            };
-        }
-        return extension;
-    }
-
-    // === 8. APROBAR ===
+    // 9. Transacciones ACID
     private static void aprobarDocumentoTransaccion() {
-        System.out.println("\n--- Aprobar Documento (Transacción ACID) ---");
+        System.out.println("\n--- APROBACIÓN CON TRANSACCIÓN ACID ---");
         System.out.print("ID del documento a aprobar: ");
         String id = scanner.nextLine().trim();
         documentoRepository.aprobarDocumentoConTransaccion(id);
     }
 
-    // === 9. MOSTRAR OPLOG (timestamps en hora local) ===
+    // 10. Monitoreo del oplog
     private static void mostrarUltimasOperacionesOplog() {
-        System.out.println("\n--- Últimas 20 Operaciones en Oplog ---");
+        System.out.println("\n--- MONITOREO DEL OPLOG ---");
         List<Document> operaciones = documentoRepository.obtenerUltimasOperacionesOplog(20);
         if (operaciones.isEmpty()) {
-            System.out.println("No hay operaciones recientes en la colección de documentos.");
+            System.out.println("No hay operaciones recientes registradas.");
         } else {
             operaciones.forEach(op -> {
                 BsonTimestamp bsonTs = op.get("ts", BsonTimestamp.class);
-                String timestampLegible = "Timestamp inválido";
+                String timestampLegible = "No disponible";
                 if (bsonTs != null) {
                     LocalDateTime utc = LocalDateTime.ofEpochSecond(bsonTs.getTime(), 0, ZoneOffset.UTC);
                     LocalDateTime local = utc.atZone(ZoneOffset.UTC).withZoneSameInstant(ZONA_LOCAL).toLocalDateTime();
                     timestampLegible = local.format(FORMATO_TIMESTAMP);
                 }
 
-                System.out.println("📅 Timestamp: " + timestampLegible);
+                System.out.println("Timestamp: " + timestampLegible);
 
                 String operacion = op.getString("op");
                 String textoOp = switch (operacion) {
-                    case "i" -> "INSERT (Nuevo documento creado)";
-                    case "u" -> "UPDATE (Documento actualizado)";
-                    case "d" -> "DELETE (Documento eliminado)";
+                    case "i" -> "INSERT";
+                    case "u" -> "UPDATE";
+                    case "d" -> "DELETE";
                     default -> operacion;
                 };
                 System.out.println("Operación: " + textoOp);
@@ -340,101 +329,94 @@ public class DocManageApplication {
                 }
 
                 if (docId != null) {
-                    System.out.println("Documento ID: " + docId);
+                    System.out.println("ID del documento: " + docId);
                 }
 
-                System.out.println("Detalle: " + op.get("o"));
                 System.out.println("---");
             });
         }
     }
 
-    // === 10. RECUPERACIÓN (input interpretado como hora local) ===
+    // 11. Recuperación desde oplog
     private static void recuperarDesdeOplog() {
-        System.out.println("\n--- Recuperación desde Oplog ---");
-        System.out.println("Ingresa el timestamp en formato: YYYY-MM-DDTHH:MM:SS (hora local)");
-        System.out.println("Ejemplo: 2025-12-10T20:30:45");
-        System.out.print("Timestamp (dejar vacío para recuperar las últimas 20 operaciones): ");
+        System.out.println("\n--- RECUPERACIÓN DESDE OPLOG ---");
+        System.out.println("Formato de timestamp: YYYY-MM-DDTHH:MM:SS");
+        System.out.print("Timestamp (opcional): ");
         String input = scanner.nextLine().trim();
 
         BsonTimestamp desdeTs = null;
         if (!input.isEmpty()) {
             try {
                 LocalDateTime ldtLocal = LocalDateTime.parse(input, FORMATO_TIMESTAMP);
-                // Convertir hora local → UTC
                 long secondsUTC = ldtLocal.atZone(ZONA_LOCAL).withZoneSameInstant(ZoneOffset.UTC).toEpochSecond();
                 desdeTs = new BsonTimestamp((int) secondsUTC, 0);
-                System.out.println("Filtrando operaciones a partir de: " + ldtLocal + " (hora local)");
+                System.out.println("Timestamp especificado: " + ldtLocal);
             } catch (Exception e) {
-                System.out.println("❌ Formato inválido. Usando las últimas 20 operaciones.");
+                System.out.println("Formato inválido. Usando operaciones recientes.");
             }
         }
 
         List<Document> ops = documentoRepository.obtenerOperacionesOplogDesde(desdeTs, 20);
         if (ops.isEmpty()) {
-            System.out.println("No se encontraron operaciones para recuperar.");
+            System.out.println("No hay operaciones para recuperar.");
             return;
         }
 
-        System.out.println("Se encontraron " + ops.size() + " operaciones relevantes.");
-        System.out.print("¿Aplicar recuperación? (s/n): ");
+        System.out.println("Operaciones encontradas: " + ops.size());
+        System.out.print("¿Proceder con la recuperación? (s/n): ");
         String confirmar = scanner.nextLine().trim().toLowerCase();
 
         if ("s".equals(confirmar) || "sí".equals(confirmar)) {
             int aplicadas = documentoRepository.aplicarRecuperacionOplog(ops);
-            System.out.println("✅ Recuperación completada. Operaciones aplicadas: " + aplicadas);
+            System.out.println("Recuperación completada. Operaciones aplicadas: " + aplicadas);
         } else {
             System.out.println("Recuperación cancelada.");
         }
     }
 
+    // 12. Demostración de recuperación
     private static void simularDesastreYRecuperacion() {
-        System.out.println("\n--- SIMULACIÓN DE DESASTRE Y RECUPERACIÓN ---");
-        System.out.println("¡ADVERTENCIA! Esto eliminará TODOS los documentos y luego intentará recuperarlos usando el oplog.");
-        System.out.print("¿Estás seguro? (s/n): ");
+        System.out.println("\n--- DEMOSTRACIÓN: RECUPERACIÓN ANTE DESASTRES ---");
+        System.out.println("Esta operación eliminará todos los documentos del sistema.");
+        System.out.print("¿Confirmar demostración? (s/n): ");
         String confirmar = scanner.nextLine().trim().toLowerCase();
         if (!"s".equals(confirmar) && !"sí".equals(confirmar)) {
-            System.out.println("Operación cancelada.");
+            System.out.println("Demostración cancelada.");
             return;
         }
 
-        // Paso 1: Mostrar estado actual
-        System.out.println("\nEstado actual (antes del desastre):");
+        System.out.println("\nEstado inicial del sistema:");
         mostrarTodosLosDocumentos();
 
-        // Paso 2: Simular desastre - borrar todos los documentos
-        System.out.println("\n🔥 Simulando desastre: Eliminando todos los documentos...");
+        System.out.println("\nEjecutando simulación de desastre...");
         long borrados = documentoRepository.simularDesastre();
         System.out.println("Documentos eliminados: " + borrados);
 
-        // Verificar estado después del desastre
         System.out.println("\nEstado después del desastre:");
         mostrarTodosLosDocumentos();
 
-        // Paso 3: Recuperación automática usando oplog (desde el principio del tiempo)
-        System.out.println("\n🔄 Iniciando recuperación automática usando oplog...");
-        List<Document> todasLasOps = documentoRepository.obtenerOperacionesOplogDesde(null, 1000); // máximo razonable
+        System.out.println("\nIniciando recuperación automática...");
+        List<Document> todasLasOps = documentoRepository.obtenerOperacionesOplogDesde(null, 1000);
         if (todasLasOps.isEmpty()) {
-            System.out.println("No se encontraron operaciones en el oplog para recuperar.");
+            System.out.println("No hay operaciones para recuperación.");
         } else {
-            System.out.println("Aplicando " + todasLasOps.size() + " operaciones del oplog...");
             int aplicadas = documentoRepository.aplicarRecuperacionOplog(todasLasOps);
-            System.out.println("✅ Recuperación completada. Operaciones aplicadas: " + aplicadas);
+            System.out.println("Operaciones aplicadas: " + aplicadas);
         }
 
-        // Paso 4: Mostrar estado final
         System.out.println("\nEstado final después de la recuperación:");
         mostrarTodosLosDocumentos();
 
-        System.out.println("\n¡Demostración completada! El sistema ha sido restaurado usando el oplog.");
+        System.out.println("\nDemostración completada exitosamente.");
     }
 
+    // 4. Búsqueda por rango de fechas
     private static void buscarPorRangoFechas() {
-        System.out.println("\n--- Buscar Documentos por Rango de Fechas ---");
-        System.out.println("Formato: YYYY-MM-DD (ej: 2025-12-10)");
-        System.out.print("Fecha desde (dejar vacío para sin límite inferior): ");
+        System.out.println("\n--- CONSULTA POR RANGO DE FECHAS ---");
+        System.out.println("Formato: YYYY-MM-DD");
+        System.out.print("Fecha inicial (opcional): ");
         String desdeStr = scanner.nextLine().trim();
-        System.out.print("Fecha hasta (dejar vacío para sin límite superior): ");
+        System.out.print("Fecha final (opcional): ");
         String hastaStr = scanner.nextLine().trim();
 
         LocalDateTime desde = null;
@@ -448,12 +430,12 @@ public class DocManageApplication {
                 hasta = LocalDate.parse(hastaStr).atTime(23, 59, 59, 999_999_999);
             }
         } catch (Exception e) {
-            System.out.println("Formato de fecha inválido. Use YYYY-MM-DD");
+            System.out.println("Formato de fecha inválido.");
             return;
         }
 
         List<Documento> resultados = documentoRepository.buscarPorRangoFechas(desde, hasta);
-        System.out.println("\nResultados encontrados: " + resultados.size() + "\n");
+        System.out.println("\nResultados de la consulta: " + resultados.size() + " documentos");
         imprimirDocumentos(resultados);
     }
 }
